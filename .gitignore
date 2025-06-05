@@ -1,0 +1,65 @@
+# Ignore IDE-specific files
+.idea/
+*.iml
+.vscode/
+*.sublime-*
+*.code-workspace
+
+# Ignore Python environment files
+.venv/
+venv/
+env/
+*.virtualenv/
+pip-log.txt
+pip-delete-this-directory.txt
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Ignore JavaScript/Node.js related
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*~
+
+# Ignore database files
+*.sqlite3
+*.db
+
+# Ignore credential files
+db/*.json
+*credentials*.json
+*.pem
+*.key
+
+# Ignore log files and temp files
+*.log
+*.tmp
+logs/
+tmp/
+
+# Ignore compiled Python files
+dist/
+build/
+*.egg-info/
+
+# Ignore miscellaneous
+.env
+.sass-cache
+.tmp
+.github/
+.flake8
