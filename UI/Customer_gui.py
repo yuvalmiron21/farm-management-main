@@ -1,10 +1,11 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QTableWidget, QTableWidgetItem,
-    QMessageBox, QHBoxLayout, QInputDialog, QHeaderView, QLineEdit
+    QMessageBox, QHBoxLayout, QInputDialog, QHeaderView, QLineEdit, QDialog, QFormLayout, QDialogButtonBox, QSpinBox
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QColor
 from firebase_admin import db
+import uuid
 
 class CustomerGUI(QWidget):
     def __init__(self):
@@ -210,42 +211,15 @@ class CustomerGUI(QWidget):
             self.customer_table.setItem(row_position, col, item)
 
     def add_customer(self):
-        """Add a new customer with improved input dialog"""
+        """Add a new customer with a modern form dialog and auto-generated ID"""
         try:
-            customer_id, ok = QInputDialog.getInt(self, "Add Customer", "Enter Customer ID:", min=1)
-            if not ok:
-                return
-                
-            name, ok = QInputDialog.getText(self, "Add Customer", "Enter Customer Name:")
-            if not ok or not name.strip():
-                return
-                
-            email, ok = QInputDialog.getText(self, "Add Customer", "Enter Customer Email:")
-            if not ok or not email.strip():
-                return
-                
-            phone, ok = QInputDialog.getText(self, "Add Customer", "Enter Customer Phone:")
-            if not ok or not phone.strip():
-                return
-                
-            address, ok = QInputDialog.getText(self, "Add Customer", "Enter Customer Address:")
-            if not ok or not address.strip():
-                return
-
-            new_customer = {
-                "ID": customer_id,
-                "Name": name.strip(),
-                "Email": email.strip(),
-                "Phone": phone.strip(),
-                "Address": address.strip()
-            }
-
-            ref = db.reference('Customer')
-            ref.child(str(customer_id)).set(new_customer)
-            
-            QMessageBox.information(self, "Success", "Customer added successfully!")
-            self.load_customers()
-            
+            dialog = AddCustomerDialog(self)
+            if dialog.exec_() == QDialog.Accepted:
+                data = dialog.get_data()
+                ref = db.reference('Customer')
+                ref.child(data["ID"]).set(data)
+                QMessageBox.information(self, "Success", "Customer added successfully!")
+                self.load_customers()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to add customer: {str(e)}")
 
@@ -322,3 +296,63 @@ class CustomerGUI(QWidget):
                 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to delete customer: {str(e)}")
+
+class AddCustomerDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add New Customer")
+        self.setMinimumWidth(400)
+        self.setStyleSheet("""
+            QDialog { background: #f8fafc; border-radius: 16px; }
+            QLabel#titleLabel { font-size: 22px; font-weight: bold; color: #2c3e50; margin-bottom: 18px; }
+            QFormLayout > QLabel { font-size: 15px; color: #222; min-width: 110px; }
+            QLineEdit { font-size: 15px; padding: 7px 10px; border-radius: 7px; border: 1px solid #d0d7de; background: #fff; }
+            QPushButton { min-width: 90px; min-height: 32px; font-size: 15px; border-radius: 8px; font-weight: bold; }
+            QPushButton:enabled { background: #43a047; color: #fff; }
+            QPushButton:enabled:hover { background: #388e3c; }
+            QPushButton:disabled { background: #e0e0e0; color: #aaa; }
+            QPushButton#Cancel { background: #e74c3c; color: #fff; }
+            QPushButton#Cancel:hover { background: #c0392b; }
+        """)
+        layout = QVBoxLayout(self)
+        # Title with icon
+        title = QLabel("👤 Add New Customer")
+        title.setObjectName("titleLabel")
+        title.setAlignment(Qt.AlignHCenter)
+        layout.addWidget(title)
+        # Form
+        form = QFormLayout()
+        form.setSpacing(16)
+        self.name = QLineEdit()
+        form.addRow("Name:", self.name)
+        self.email = QLineEdit()
+        form.addRow("Email:", self.email)
+        self.phone = QLineEdit()
+        form.addRow("Phone:", self.phone)
+        self.address = QLineEdit()
+        form.addRow("Address:", self.address)
+        layout.addLayout(form)
+        # Buttons
+        btns = QDialogButtonBox()
+        self.ok_btn = QPushButton("OK")
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.setObjectName("Cancel")
+        btns.addButton(self.ok_btn, QDialogButtonBox.AcceptRole)
+        btns.addButton(self.cancel_btn, QDialogButtonBox.RejectRole)
+        self.ok_btn.clicked.connect(self.validate_and_accept)
+        self.cancel_btn.clicked.connect(self.reject)
+        layout.addSpacing(10)
+        layout.addWidget(btns)
+    def validate_and_accept(self):
+        if not self.name.text().strip() or not self.email.text().strip() or not self.phone.text().strip() or not self.address.text().strip():
+            QMessageBox.warning(self, "Error", "Please fill in all fields.")
+            return
+        self.accept()
+    def get_data(self):
+        return {
+            "ID": str(uuid.uuid4()),
+            "Name": self.name.text().strip(),
+            "Email": self.email.text().strip(),
+            "Phone": self.phone.text().strip(),
+            "Address": self.address.text().strip()
+        }

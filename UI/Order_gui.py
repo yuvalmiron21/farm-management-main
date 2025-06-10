@@ -1,9 +1,9 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QTableWidget, QTableWidgetItem,
     QMessageBox, QHBoxLayout, QInputDialog, QHeaderView, QFrame, QSizePolicy,
-    QLineEdit, QComboBox
+    QLineEdit, QComboBox, QDialog, QFormLayout, QDialogButtonBox, QDateEdit, QDoubleSpinBox, QSpinBox
 )
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, QDate
 from PyQt5.QtGui import QFont, QColor, QPalette
 from firebase_admin import db
 
@@ -298,42 +298,173 @@ class OrderGUI(QWidget):
             
             self.order_table.setItem(row_position, col, item)
 
-    def add_order(self):
-        """Add a new order with improved input dialog"""
-        try:
-            customer_id, ok = QInputDialog.getInt(self, "Add Order", "Enter Customer ID:", min=1)
-            if not ok:
+    class AddOrderDialog(QDialog):
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            self.setWindowTitle("Add New Order")
+            self.setMinimumWidth(500)
+            self.setStyleSheet("""
+                QDialog { background: #f8fafc; border-radius: 16px; }
+                QLabel#titleLabel { font-size: 22px; font-weight: bold; color: #2c3e50; margin-bottom: 18px; }
+                QFormLayout > QLabel { font-size: 15px; color: #222; min-width: 110px; }
+                QSpinBox, QDateEdit, QDoubleSpinBox, QComboBox { font-size: 15px; padding: 7px 10px; border-radius: 7px; border: 1px solid #d0d7de; background: #fff; }
+                QPushButton { min-width: 90px; min-height: 32px; font-size: 15px; border-radius: 8px; font-weight: bold; }
+                QPushButton:enabled { background: #43a047; color: #fff; }
+                QPushButton:enabled:hover { background: #388e3c; }
+                QPushButton:disabled { background: #e0e0e0; color: #aaa; }
+                QPushButton#Cancel { background: #e74c3c; color: #fff; }
+                QPushButton#Cancel:hover { background: #c0392b; }
+            """)
+            layout = QVBoxLayout(self)
+            # Title with icon
+            title = QLabel("📦 Add New Order")
+            title.setObjectName("titleLabel")
+            title.setAlignment(Qt.AlignHCenter)
+            layout.addWidget(title)
+            # Fetch customers and products
+            self.customers = self.fetch_customers()
+            self.products = self.fetch_products()
+            # Form
+            form = QFormLayout()
+            form.setSpacing(16)
+            # Customer ComboBox
+            self.customer_combo = QComboBox()
+            for cid, name in self.customers.items():
+                self.customer_combo.addItem(f"{name} (ID: {cid})", cid)
+            form.addRow("Customer:", self.customer_combo)
+            # Order Date
+            self.order_date = QDateEdit()
+            self.order_date.setCalendarPopup(True)
+            self.order_date.setDate(QDate.currentDate())
+            form.addRow("Order Date:", self.order_date)
+            # Status
+            self.status = QComboBox()
+            self.status.addItems(["Pending", "Shipped", "Delivered", "Cancelled"])
+            form.addRow("Status:", self.status)
+            layout.addLayout(form)
+            # Products Table
+            prod_label = QLabel("Products:")
+            prod_label.setStyleSheet("font-size: 15px; font-weight: bold; margin-top: 10px;")
+            layout.addWidget(prod_label)
+            self.product_table = QTableWidget(0, 3)
+            self.product_table.setHorizontalHeaderLabels(["Product", "Quantity", "Unit Price"])
+            self.product_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+            self.product_table.verticalHeader().setVisible(False)
+            layout.addWidget(self.product_table)
+            # Add Product Button
+            add_prod_btn = QPushButton("+ Add Product")
+            add_prod_btn.clicked.connect(self.add_product_row)
+            layout.addWidget(add_prod_btn)
+            # Order Summary
+            self.summary_label = QLabel()
+            self.summary_label.setStyleSheet("font-size: 15px; margin-top: 10px; color: #2c3e50;")
+            layout.addWidget(self.summary_label)
+            self.product_table.cellChanged.connect(self.update_summary)
+            # Buttons
+            btns = QDialogButtonBox()
+            self.ok_btn = QPushButton("OK")
+            self.cancel_btn = QPushButton("Cancel")
+            self.cancel_btn.setObjectName("Cancel")
+            btns.addButton(self.ok_btn, QDialogButtonBox.AcceptRole)
+            btns.addButton(self.cancel_btn, QDialogButtonBox.RejectRole)
+            self.ok_btn.clicked.connect(self.validate_and_accept)
+            self.cancel_btn.clicked.connect(self.reject)
+            layout.addSpacing(10)
+            layout.addWidget(btns)
+            self.add_product_row()  # Start with one row
+            self.update_summary()
+        def fetch_customers(self):
+            ref = db.reference('Customer')
+            customers = ref.get() or {}
+            return {str(cid): cust.get('Name', str(cid)) for cid, cust in customers.items()}
+        def fetch_products(self):
+            ref = db.reference('Products')
+            products = ref.get() or {}
+            return {str(pid): prod.get('Name', str(pid)) for pid, prod in products.items()}
+        def add_product_row(self):
+            row = self.product_table.rowCount()
+            self.product_table.insertRow(row)
+            # Product ComboBox
+            prod_combo = QComboBox()
+            for pid, name in self.products.items():
+                prod_combo.addItem(name, pid)
+            self.product_table.setCellWidget(row, 0, prod_combo)
+            # Quantity
+            qty = QSpinBox()
+            qty.setMinimum(1)
+            qty.setMaximum(10000)
+            qty.valueChanged.connect(self.update_summary)
+            self.product_table.setCellWidget(row, 1, qty)
+            # Unit Price
+            price = QDoubleSpinBox()
+            price.setMinimum(0.01)
+            price.setMaximum(100000)
+            price.setPrefix("₪")
+            price.valueChanged.connect(self.update_summary)
+            self.product_table.setCellWidget(row, 2, price)
+        def update_summary(self):
+            total = 0
+            summary = []
+            for row in range(self.product_table.rowCount()):
+                prod_combo = self.product_table.cellWidget(row, 0)
+                qty = self.product_table.cellWidget(row, 1)
+                price = self.product_table.cellWidget(row, 2)
+                if prod_combo and qty and price:
+                    name = prod_combo.currentText()
+                    q = qty.value()
+                    p = price.value()
+                    if q > 0 and p > 0:
+                        total += q * p
+                        summary.append(f"{name} x{q} @ ₪{p:.2f}")
+            self.summary_label.setText(f"<b>Order Summary:</b> {'; '.join(summary)}<br><b>Total: ₪{total:.2f}</b>")
+        def validate_and_accept(self):
+            if self.product_table.rowCount() == 0:
+                QMessageBox.warning(self, "Error", "Please add at least one product.")
                 return
-                
-            order_date, ok = QInputDialog.getText(self, "Add Order", "Enter Order Date (YYYY-MM-DD):")
-            if not ok:
-                return
-                
-            total_amount, ok = QInputDialog.getDouble(self, "Add Order", "Enter Total Amount (₪):", min=0.01)
-            if not ok:
-                return
-                
-            status_dialog = QInputDialog(self)
-            status_dialog.setComboBoxItems(["Pending", "Shipped", "Delivered", "Cancelled"])
-            status_dialog.setWindowTitle("Add Order")
-            status_dialog.setLabelText("Select Status:")
-            if status_dialog.exec_() != QInputDialog.Accepted:
-                return
-            status = status_dialog.textValue()
-
-            new_order = {
-                "CustomerID": customer_id,
-                "OrderDate": order_date,
-                "TotalAmount": total_amount,
-                "Status": status
+            for row in range(self.product_table.rowCount()):
+                prod_combo = self.product_table.cellWidget(row, 0)
+                qty = self.product_table.cellWidget(row, 1)
+                price = self.product_table.cellWidget(row, 2)
+                if not prod_combo or not qty or not price or qty.value() <= 0 or price.value() <= 0:
+                    QMessageBox.warning(self, "Error", "Please fill all product details correctly.")
+                    return
+            self.accept()
+        def get_data(self):
+            # Collect products
+            products = []
+            total = 0
+            for row in range(self.product_table.rowCount()):
+                prod_combo = self.product_table.cellWidget(row, 0)
+                qty = self.product_table.cellWidget(row, 1)
+                price = self.product_table.cellWidget(row, 2)
+                pid = prod_combo.currentData()
+                name = prod_combo.currentText()
+                q = qty.value()
+                p = price.value()
+                products.append({"ProductID": pid, "Name": name, "Quantity": q, "UnitPrice": p})
+                total += q * p
+            return {
+                "CustomerID": self.customer_combo.currentData(),
+                "OrderDate": self.order_date.date().toString("yyyy-MM-dd"),
+                "Status": self.status.currentText(),
+                "Products": products,
+                "TotalAmount": total
             }
 
-            ref = db.reference('Order')
-            new_order_ref = ref.push(new_order)
-            
-            QMessageBox.information(self, "Success", "Order added successfully!")
-            self.load_orders()
-            
+    def add_order(self):
+        """Add a new order with a modern form dialog"""
+        try:
+            dialog = self.AddOrderDialog(self)
+            if dialog.exec_() == QDialog.Accepted:
+                data = dialog.get_data()
+                # Validation
+                if not data["CustomerID"] or not data["OrderDate"] or data["TotalAmount"] <= 0 or not data["Status"]:
+                    QMessageBox.warning(self, "Error", "Please fill in all fields correctly.")
+                    return
+                ref = db.reference('Order')
+                ref.push(data)
+                QMessageBox.information(self, "Success", "Order added successfully!")
+                self.load_orders()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to add order: {str(e)}")
 

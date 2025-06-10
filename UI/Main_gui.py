@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QWidget,
 from PyQt5.QtGui import QFont, QIcon, QColor, QPalette, QBrush, QPen, QPixmap
 from PyQt5.QtCore import Qt, QSettings, QTranslator, QLocale
 from firebase_admin import db, credentials, initialize_app
+import firebase_admin
 from Order_gui import OrderGUI
 from Growing_bed_gui import GrowingBedGUI
 from Customer_gui import CustomerGUI
@@ -35,9 +36,10 @@ if not os.path.exists(SERVICE_ACCOUNT_FILE):
     raise FileNotFoundError(
         f"Could not find the Firebase credentials file at: {SERVICE_ACCOUNT_FILE}")
 
-# Initialize Firebase
-cred = credentials.Certificate(SERVICE_ACCOUNT_FILE)
-initialize_app(cred, {"databaseURL": DATABASE_URL})
+# Initialize Firebase only if not already initialized
+if not firebase_admin._apps:
+    cred = credentials.Certificate(SERVICE_ACCOUNT_FILE)
+    initialize_app(cred, {"databaseURL": DATABASE_URL})
 
 # Translation dictionaries for different languages
 TRANSLATIONS = {

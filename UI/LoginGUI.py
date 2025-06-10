@@ -1,11 +1,12 @@
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox,
+    QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox,
     QHBoxLayout, QToolButton, QFrame
 )
 from PyQt5.QtGui import QFont, QPixmap
 from PyQt5.QtCore import Qt
 from Main_gui import Main_gui
-from user_db import check_user
+from UserDashboard import UserDashboard
+from user_management import UserManagement
 
 class LoginGUI(QWidget):
     def __init__(self):
@@ -55,92 +56,83 @@ class LoginGUI(QWidget):
         subtitle.setStyleSheet("color: #888; margin-bottom: 8px;")
         panel_layout.addWidget(subtitle)
 
-        # Username field with icon
-        user_layout = QHBoxLayout()
-        user_icon = QLabel("👤")
-        user_icon.setFont(QFont("Segoe UI Emoji", 18))
-        user_icon.setFixedWidth(32)
-        user_icon.setAlignment(Qt.AlignCenter)
-        user_layout.addWidget(user_icon)
+        # Username field
         self.username_input = QLineEdit()
         self.username_input.setPlaceholderText("Username")
-        self.username_input.setMinimumHeight(36)
-        self.username_input.setFont(QFont("Segoe UI", 11))
-        user_layout.addWidget(self.username_input)
-        panel_layout.addLayout(user_layout)
+        self.username_input.setStyleSheet("""
+            QLineEdit {
+                padding: 12px;
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                font-size: 14px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #43a047;
+            }
+        """)
+        panel_layout.addWidget(self.username_input)
 
-        # Password field with icon + eye
-        pw_layout = QHBoxLayout()
-        lock_icon = QLabel("🔒")
-        lock_icon.setFont(QFont("Segoe UI Emoji", 18))
-        lock_icon.setFixedWidth(32)
-        lock_icon.setAlignment(Qt.AlignCenter)
-        pw_layout.addWidget(lock_icon)
+        # Password field
         self.password_input = QLineEdit()
         self.password_input.setPlaceholderText("Password")
         self.password_input.setEchoMode(QLineEdit.Password)
-        self.password_input.setMinimumHeight(36)
-        self.password_input.setFont(QFont("Segoe UI", 11))
-        pw_layout.addWidget(self.password_input)
-        self.show_pw_btn = QToolButton()
-        self.show_pw_btn.setText("👁️")
-        self.show_pw_btn.setCheckable(True)
-        self.show_pw_btn.setToolTip("Show/Hide Password")
-        self.show_pw_btn.setStyleSheet("font-size: 18px; background: transparent; border: none;")
-        self.show_pw_btn.toggled.connect(self.toggle_password_visibility)
-        pw_layout.addWidget(self.show_pw_btn)
-        panel_layout.addLayout(pw_layout)
-
-        # Login button
-        self.login_button = QPushButton("Login")
-        self.login_button.setMinimumHeight(44)
-        self.login_button.setFont(QFont("Segoe UI", 13, QFont.Bold))
-        self.login_button.setStyleSheet("""
-            QPushButton {
-                background-color: #43a047;
-                color: white;
+        self.password_input.setStyleSheet("""
+            QLineEdit {
+                padding: 12px;
+                border: 1px solid #e0e0e0;
                 border-radius: 8px;
-                font-weight: bold;
-                letter-spacing: 1px;
+                font-size: 14px;
             }
-            QPushButton:hover {
-                background-color: #388e3c;
+            QLineEdit:focus {
+                border: 1px solid #43a047;
             }
         """)
-        self.login_button.clicked.connect(self.handle_login)
-        panel_layout.addWidget(self.login_button)
+        panel_layout.addWidget(self.password_input)
 
-        main_layout.addWidget(panel, alignment=Qt.AlignCenter)
+        # Login button
+        login_button = QPushButton("Login")
+        login_button.setStyleSheet("""
+            QPushButton {
+                background: #43a047;
+                color: white;
+                border: none;
+                padding: 12px;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #388e3c;
+            }
+            QPushButton:pressed {
+                background: #2e7d32;
+            }
+        """)
+        login_button.clicked.connect(self.handle_login)
+        panel_layout.addWidget(login_button)
 
-    def toggle_password_visibility(self, checked):
-        if checked:
-            self.password_input.setEchoMode(QLineEdit.Normal)
-            self.show_pw_btn.setText("🙈")
-        else:
-            self.password_input.setEchoMode(QLineEdit.Password)
-            self.show_pw_btn.setText("👁️")
+        main_layout.addWidget(panel)
 
     def handle_login(self):
-        username = self.username_input.text().strip()
+        username = self.username_input.text()
         password = self.password_input.text()
-        if not username or not password:
-            QMessageBox.warning(self, "Error", "Please enter both username and password.")
-            return
-        try:
-            ok, role = check_user(username, password)
-            if ok:
-                QMessageBox.information(self, "Success", "Login successful!")
-                self.open_main_gui(username, role)
-                return
-            else:
-                QMessageBox.warning(self, "Error", "Invalid username or password.")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to log in: {str(e)}")
 
-    def open_main_gui(self, username, role):
-        self.main_window = Main_gui(username, role)
-        self.main_window.show()
-        self.close()
+        if not username or not password:
+            QMessageBox.warning(self, "Error", "Please enter both username and password")
+            return
+
+        success, role, message = UserManagement.authenticate_user(username, password)
+        
+        if success:
+            if role == "admin":
+                self.main_window = Main_gui(username=username, role=role)
+                self.main_window.show()
+            else:
+                self.user_dashboard = UserDashboard(username)
+                self.user_dashboard.show()
+            self.close()
+        else:
+            QMessageBox.warning(self, "Error", message)
 
 if __name__ == "__main__":
     import sys

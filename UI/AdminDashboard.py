@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
     QGridLayout, QScrollArea, QPushButton, QSizePolicy,
     QProgressBar, QMessageBox, QToolTip, QComboBox, QDateEdit,
-    QToolButton, QStyle, QDialog
+    QToolButton, QStyle, QDialog, QGroupBox, QFormLayout, QLineEdit
 )
 from PyQt5.QtCore import Qt, QTimer, QDate
 from PyQt5.QtGui import QPainter, QColor, QFont, QCursor, QPixmap
@@ -29,6 +29,7 @@ from matplotlib.figure import Figure
 from prophet import Prophet
 import pandas as pd
 import io
+from user_management import UserManagement
 
 class MetricCard(QFrame):
     def __init__(self, title, value, icon, color="#4CAF50", show_progress=False, progress_value=0):
@@ -326,6 +327,23 @@ class AdminDashboard(QWidget):
         self.insights_text.setWordWrap(True)
         self.insights_text.setStyleSheet("font-size: 15px; color: #2c3e50; margin-bottom: 10px;")
         scroll_layout.addWidget(self.insights_text)
+
+        # Add User Section
+        add_user_group = QGroupBox("Add New User")
+        add_user_layout = QFormLayout()
+        self.new_username = QLineEdit()
+        self.new_password = QLineEdit()
+        self.new_password.setEchoMode(QLineEdit.Password)
+        self.new_role = QComboBox()
+        self.new_role.addItems(["user", "admin"])
+        add_user_layout.addRow("Username:", self.new_username)
+        add_user_layout.addRow("Password:", self.new_password)
+        add_user_layout.addRow("Role:", self.new_role)
+        add_user_button = QPushButton("Add User")
+        add_user_button.clicked.connect(self.add_new_user)
+        add_user_layout.addRow(add_user_button)
+        add_user_group.setLayout(add_user_layout)
+        scroll_layout.addWidget(add_user_group)
 
         # Connect filter signals
         self.time_range_combo.currentIndexChanged.connect(self.update_prediction_section)
@@ -1305,6 +1323,21 @@ All predictions below use Facebook Prophet (time series ML model) on your filter
         ref = db.reference('Customer')
         customers = ref.get() or {}
         return {cid: cust.get('Name', cid) for cid, cust in customers.items()}
+
+    def add_new_user(self):
+        username = self.new_username.text()
+        password = self.new_password.text()
+        role = self.new_role.currentText()
+        if not username or not password:
+            QMessageBox.warning(self, "Error", "Please fill in all fields.")
+            return
+        success, message = UserManagement.add_user(username, password, role)
+        if success:
+            QMessageBox.information(self, "Success", message)
+            self.new_username.clear()
+            self.new_password.clear()
+        else:
+            QMessageBox.warning(self, "Error", message)
 
 if __name__ == '__main__':
     from PyQt5.QtWidgets import QApplication
