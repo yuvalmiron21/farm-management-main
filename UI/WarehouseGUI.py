@@ -1,10 +1,10 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
     QGraphicsView, QGraphicsScene, QGraphicsItem, QFrame, QToolTip,
-    QSizePolicy, QSpacerItem, QScrollArea, QMenu, QInputDialog
+    QSizePolicy, QSpacerItem, QScrollArea, QMenu, QInputDialog, QDialog, QLineEdit, QSpinBox, QDialogButtonBox, QComboBox, QDateEdit, QFormLayout, QMessageBox, QStackedWidget
 )
 from PyQt5.QtCore import Qt, QRectF, QPointF, QSizeF
-from PyQt5.QtGui import QPainter, QBrush, QPen, QColor, QLinearGradient, QFont
+from PyQt5.QtGui import QPainter, QBrush, QPen, QColor, QLinearGradient, QFont, QDoubleValidator, QIcon
 from firebase_admin import db
 
 class StorageUnitItem(QGraphicsItem):
@@ -110,6 +110,152 @@ class StorageUnitItem(QGraphicsItem):
         self.hover = False
         self.update()
 
+class AddWarehouseItemDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add to Warehouse")
+        self.setMinimumWidth(480)
+        self.setStyleSheet("""
+            QDialog {
+                background: #f8f9fa;
+            }
+            QLabel {
+                font-size: 15px;
+            }
+            QLineEdit, QComboBox, QDateEdit, QSpinBox {
+                padding: 8px;
+                border-radius: 5px;
+                border: 1px solid #dcdcdc;
+                font-size: 14px;
+            }
+            QPushButton {
+                padding: 10px;
+                border-radius: 5px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #27ae60, stop:1 #2980b9);
+                color: white;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #219150;
+            }
+        """)
+        layout = QVBoxLayout()
+        title = QLabel("📦 Add to Warehouse")
+        title.setFont(QFont("Arial", 18, QFont.Bold))
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+        # Type selection
+        self.type_combo = QComboBox()
+        self.type_combo.addItem("Product", "product")
+        self.type_combo.addItem("Supply Storage", "supply")
+        self.type_combo.addItem("Harvest Storage", "harvest")
+        self.type_combo.currentIndexChanged.connect(self.switch_form)
+        layout.addWidget(self.type_combo)
+        # Stacked widget for forms
+        self.forms = QStackedWidget()
+        # Product form
+        self.product_form = QFormLayout()
+        self.product_name = QLineEdit()
+        self.product_name.setPlaceholderText("Product name...")
+        self.product_form.addRow("Name:", self.product_name)
+        self.product_category = QLineEdit()
+        self.product_category.setPlaceholderText("e.g. Substrate, Packaging...")
+        self.product_form.addRow("Category:", self.product_category)
+        self.product_quantity = QSpinBox()
+        self.product_quantity.setRange(0, 100000)
+        self.product_form.addRow("Quantity:", self.product_quantity)
+        self.product_unit_price = QLineEdit()
+        self.product_unit_price.setValidator(QDoubleValidator(0.0, 100000.0, 2))
+        self.product_unit_price.setPlaceholderText("₪0.00")
+        self.product_form.addRow("Unit Price:", self.product_unit_price)
+        self.product_supplier = QLineEdit()
+        self.product_supplier.setPlaceholderText("Supplier name...")
+        self.product_form.addRow("Supplier:", self.product_supplier)
+        self.product_expiry = QDateEdit()
+        self.product_expiry.setCalendarPopup(True)
+        self.product_form.addRow("Expiry Date:", self.product_expiry)
+        product_form_widget = QWidget()
+        product_form_widget.setLayout(self.product_form)
+        self.forms.addWidget(product_form_widget)
+        # Supply Storage form
+        self.supply_form = QFormLayout()
+        self.supply_name = QLineEdit()
+        self.supply_form.addRow("Name:", self.supply_name)
+        self.supply_quantity = QSpinBox()
+        self.supply_quantity.setRange(0, 10000)
+        self.supply_form.addRow("Initial Quantity:", self.supply_quantity)
+        self.supply_max_quantity = QSpinBox()
+        self.supply_max_quantity.setRange(1, 10000)
+        self.supply_max_quantity.setValue(100)
+        self.supply_form.addRow("Maximum Capacity:", self.supply_max_quantity)
+        supply_form_widget = QWidget()
+        supply_form_widget.setLayout(self.supply_form)
+        self.forms.addWidget(supply_form_widget)
+        # Harvest Storage form
+        self.harvest_form = QFormLayout()
+        self.harvest_name = QLineEdit()
+        self.harvest_form.addRow("Name:", self.harvest_name)
+        self.harvest_quantity = QSpinBox()
+        self.harvest_quantity.setRange(0, 10000)
+        self.harvest_form.addRow("Initial Quantity:", self.harvest_quantity)
+        self.harvest_max_quantity = QSpinBox()
+        self.harvest_max_quantity.setRange(1, 10000)
+        self.harvest_max_quantity.setValue(100)
+        self.harvest_form.addRow("Maximum Capacity:", self.harvest_max_quantity)
+        harvest_form_widget = QWidget()
+        harvest_form_widget.setLayout(self.harvest_form)
+        self.forms.addWidget(harvest_form_widget)
+        layout.addWidget(self.forms)
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, Qt.Horizontal, self)
+        btns.accepted.connect(self.validate_and_accept)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+        self.setLayout(layout)
+        self.switch_form(0)
+    def switch_form(self, idx):
+        self.forms.setCurrentIndex(idx)
+    def validate_and_accept(self):
+        idx = self.forms.currentIndex()
+        if idx == 0:  # Product
+            if not self.product_name.text().strip() or not self.product_category.text().strip() or not self.product_unit_price.text().strip() or not self.product_supplier.text().strip():
+                QMessageBox.warning(self, "Error", "Please fill in all required fields.")
+                return
+        elif idx == 1:  # Supply
+            if not self.supply_name.text().strip():
+                QMessageBox.warning(self, "Error", "Please fill in all required fields.")
+                return
+        elif idx == 2:  # Harvest
+            if not self.harvest_name.text().strip():
+                QMessageBox.warning(self, "Error", "Please fill in all required fields.")
+                return
+        self.accept()
+    def get_data(self):
+        idx = self.forms.currentIndex()
+        if idx == 0:  # Product
+            return {
+                "type": "product",
+                "name": self.product_name.text().strip(),
+                "category": self.product_category.text().strip(),
+                "quantity": self.product_quantity.value(),
+                "unit_price": float(self.product_unit_price.text().strip()),
+                "supplier": self.product_supplier.text().strip(),
+                "expiry": self.product_expiry.date().toString("yyyy-MM-dd")
+            }
+        elif idx == 1:  # Supply
+            return {
+                "type": "supply",
+                "name": self.supply_name.text().strip(),
+                "quantity": self.supply_quantity.value(),
+                "max_quantity": self.supply_max_quantity.value()
+            }
+        elif idx == 2:  # Harvest
+            return {
+                "type": "harvest",
+                "name": self.harvest_name.text().strip(),
+                "quantity": self.harvest_quantity.value(),
+                "max_quantity": self.harvest_max_quantity.value()
+            }
+
 class WarehouseGUI(QWidget):
     def __init__(self):
         super().__init__()
@@ -124,13 +270,9 @@ class WarehouseGUI(QWidget):
         # Top toolbar
         toolbar = QHBoxLayout()
         
-        add_supply_btn = QPushButton("➕ Add Supply Storage")
-        add_supply_btn.clicked.connect(lambda: self.add_storage_unit("supply"))
-        toolbar.addWidget(add_supply_btn)
-        
-        add_harvest_btn = QPushButton("🍄 Add Harvest Storage")
-        add_harvest_btn.clicked.connect(lambda: self.add_storage_unit("harvest"))
-        toolbar.addWidget(add_harvest_btn)
+        add_item_btn = QPushButton("➕ Add to Warehouse")
+        add_item_btn.clicked.connect(self.add_warehouse_item)
+        toolbar.addWidget(add_item_btn)
         
         # Add zoom buttons
         zoom_in_btn = QPushButton("🔍+")
@@ -211,44 +353,25 @@ class WarehouseGUI(QWidget):
         unit_item.setPos(x, y)
         self.scene.addItem(unit_item)
         
-    def add_storage_unit(self, unit_type):
+    def add_warehouse_item(self):
         try:
-            # Get unit details
-            name, ok = QInputDialog.getText(self, "Add Storage Unit", 
-                                          "Enter storage unit name:")
-            if not ok or not name:
-                return
-                
-            quantity, ok = QInputDialog.getInt(self, "Add Storage Unit",
-                                             "Enter initial quantity:",
-                                             0, 0, 10000, 1)
-            if not ok:
-                return
-                
-            max_quantity, ok = QInputDialog.getInt(self, "Add Storage Unit",
-                                                 "Enter maximum capacity:",
-                                                 100, quantity, 10000, 100)
-            if not ok:
-                return
-            
-            # Create new unit in database
-            unit_data = {
-                'name': name,
-                'quantity': quantity,
-                'max_quantity': max_quantity
-            }
-            
-            ref = db.reference('Supplies' if unit_type == "supply" else 'Harvests')
-            new_unit_ref = ref.push(unit_data)
-            
-            # Add to scene
-            self.add_storage_unit_to_scene(unit_type, new_unit_ref.key, unit_data)
-            
-            # Update scene size
-            self.scene.setSceneRect(self.scene.itemsBoundingRect().adjusted(-50, -50, 50, 50))
-            
+            dialog = AddWarehouseItemDialog(self)
+            if dialog.exec_() == QDialog.Accepted:
+                data = dialog.get_data()
+                if data["type"] == "product":
+                    ref = db.reference('Products')
+                    ref.push(data)
+                    QMessageBox.information(self, "Success", "Product added to warehouse!")
+                elif data["type"] == "supply":
+                    ref = db.reference('Supplies')
+                    ref.push({"name": data["name"], "quantity": data["quantity"], "max_quantity": data["max_quantity"]})
+                    QMessageBox.information(self, "Success", "Supply storage added!")
+                elif data["type"] == "harvest":
+                    ref = db.reference('Harvests')
+                    ref.push({"name": data["name"], "quantity": data["quantity"], "max_quantity": data["max_quantity"]})
+                    QMessageBox.information(self, "Success", "Harvest storage added!")
         except Exception as e:
-            print(f"Error adding storage unit: {e}") 
+            QMessageBox.critical(self, "Error", f"Failed to add item: {str(e)}")
 
     def zoom_in(self):
         self.zoom_factor *= 1.2
@@ -263,4 +386,15 @@ class WarehouseGUI(QWidget):
         if event.angleDelta().y() > 0:
             self.zoom_in()
         else:
-            self.zoom_out() 
+            self.zoom_out()
+
+    def add_product(self):
+        try:
+            dialog = AddProductDialog(self)
+            if dialog.exec_() == QDialog.Accepted:
+                product_data = dialog.get_data()
+                ref = db.reference('Products')
+                ref.push(product_data)
+                QMessageBox.information(self, "Success", "Product added to warehouse!")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to add product: {str(e)}") 

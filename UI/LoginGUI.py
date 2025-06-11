@@ -7,6 +7,7 @@ from PyQt5.QtCore import Qt
 from Main_gui import Main_gui
 from UserDashboard import UserDashboard
 from user_management import UserManagement
+import os
 
 class LoginGUI(QWidget):
     def __init__(self):
@@ -36,20 +37,22 @@ class LoginGUI(QWidget):
         """)
         panel_layout = QVBoxLayout(panel)
         panel_layout.setSpacing(18)
+        panel_layout.setAlignment(Qt.AlignTop)
 
         # Logo/title
-        logo_layout = QHBoxLayout()
-        logo = QLabel("🍄")
-        logo.setFont(QFont("Segoe UI Emoji", 32, QFont.Bold))
-        logo.setStyleSheet("color: #43a047;")
+        logo_layout = QVBoxLayout()
+        logo = QLabel()
+        logo_path = os.path.join(os.path.dirname(__file__), "logo_without_blue.png")
+        if os.path.exists(logo_path):
+            pix = QPixmap(logo_path)
+            pix = pix.scaled(128, 128, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            logo.setPixmap(pix)
+        else:
+            logo.setText("[Logo not found]")
+            logo.setStyleSheet("color: #888; font-size: 12px;")
         logo.setAlignment(Qt.AlignCenter)
-        logo_layout.addWidget(logo)
-        title = QLabel("Mush")
-        title.setFont(QFont("Segoe UI", 28, QFont.Bold))
-        title.setStyleSheet("color: #43a047; margin-left: 8px;")
-        logo_layout.addWidget(title)
-        logo_layout.addStretch()
-        panel_layout.addLayout(logo_layout)
+        logo_layout.addWidget(logo, alignment=Qt.AlignCenter)
+        panel_layout.insertLayout(0, logo_layout)
 
         subtitle = QLabel("Farm Management System")
         subtitle.setFont(QFont("Segoe UI", 12))
@@ -125,7 +128,8 @@ class LoginGUI(QWidget):
         
         if success:
             if role == "admin":
-                self.main_window = Main_gui(username=username, role=role)
+                user_data = {"username": username, "role": role}
+                self.main_window = Main_gui(user_data)
                 self.main_window.show()
             else:
                 self.user_dashboard = UserDashboard(username)

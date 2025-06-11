@@ -7,6 +7,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QColor
 from firebase_admin import db
 from datetime import datetime
+import uuid
 
 class GrowingBedGUI(QMainWindow):
     def __init__(self):
@@ -266,22 +267,17 @@ class GrowingBedGUI(QMainWindow):
     def add_growing_bed(self):
         """Add a new growing bed with improved input dialog"""
         try:
-            bed_id, ok = QInputDialog.getInt(self, "Add Growing Bed", "Enter Bed ID:", min=1)
-            if not ok:
-                return
-                
+            # Use a modern dialog with string UUID for bed_id
+            bed_id = str(uuid.uuid4())
             farm_id, ok = QInputDialog.getInt(self, "Add Growing Bed", "Enter Farm ID:", min=1)
             if not ok:
                 return
-                
             co2_level, ok = QInputDialog.getInt(self, "Add Growing Bed", "Enter CO₂ Level (ppm):", min=0, max=10000)
             if not ok:
                 return
-                
             humidity, ok = QInputDialog.getInt(self, "Add Growing Bed", "Enter Humidity Level (%):", min=0, max=100)
             if not ok:
                 return
-                
             stage_dialog = QInputDialog(self)
             stage_dialog.setComboBoxItems(self.valid_stages)
             stage_dialog.setWindowTitle("Add Growing Bed")
@@ -289,7 +285,6 @@ class GrowingBedGUI(QMainWindow):
             if stage_dialog.exec_() != QInputDialog.Accepted:
                 return
             growth_stage = stage_dialog.textValue()
-
             new_bed = {
                 "BedID": bed_id,
                 "FarmID": farm_id,
@@ -298,13 +293,10 @@ class GrowingBedGUI(QMainWindow):
                 "CurrentGrowthStage": growth_stage,
                 "LastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
-
             ref = db.reference("GrowingBed")
-            ref.child(str(bed_id)).set(new_bed)
-            
+            ref.child(bed_id).set(new_bed)
             QMessageBox.information(self, "Success", "Growing bed added successfully!")
             self.load_growing_beds()
-            
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to add growing bed: {str(e)}")
 
@@ -314,26 +306,21 @@ class GrowingBedGUI(QMainWindow):
         if selected_row == -1:
             QMessageBox.warning(self, "Error", "Please select a growing bed to update.")
             return
-
         try:
             bed_id = self.growing_bed_table.item(selected_row, 0).text()
             current_farm_id = int(self.growing_bed_table.item(selected_row, 1).text())
             current_co2 = int(self.growing_bed_table.item(selected_row, 2).text().replace(" ppm", ""))
             current_humidity = int(self.growing_bed_table.item(selected_row, 3).text().replace("%", ""))
             current_stage = self.growing_bed_table.item(selected_row, 4).text()
-
             farm_id, ok = QInputDialog.getInt(self, "Update Growing Bed", "Enter Farm ID:", value=current_farm_id, min=1)
             if not ok:
                 return
-                
             co2_level, ok = QInputDialog.getInt(self, "Update Growing Bed", "Enter CO₂ Level (ppm):", value=current_co2, min=0, max=10000)
             if not ok:
                 return
-                
             humidity, ok = QInputDialog.getInt(self, "Update Growing Bed", "Enter Humidity Level (%):", value=current_humidity, min=0, max=100)
             if not ok:
                 return
-                
             stage_dialog = QInputDialog(self)
             stage_dialog.setComboBoxItems(self.valid_stages)
             stage_dialog.setWindowTitle("Update Growing Bed")
@@ -342,7 +329,6 @@ class GrowingBedGUI(QMainWindow):
             if stage_dialog.exec_() != QInputDialog.Accepted:
                 return
             growth_stage = stage_dialog.textValue()
-
             updated_bed = {
                 "BedID": bed_id,
                 "FarmID": farm_id,
@@ -351,13 +337,10 @@ class GrowingBedGUI(QMainWindow):
                 "CurrentGrowthStage": growth_stage,
                 "LastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
-
             ref = db.reference(f"GrowingBed/{bed_id}")
             ref.update(updated_bed)
-            
             QMessageBox.information(self, "Success", "Growing bed updated successfully!")
             self.load_growing_beds()
-            
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to update growing bed: {str(e)}")
 

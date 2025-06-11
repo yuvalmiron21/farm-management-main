@@ -6,13 +6,13 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QWidget,
                              QFrame, QComboBox, QRadioButton, QButtonGroup, QStackedWidget,
                              QScrollArea, QSizePolicy, QGraphicsDropShadowEffect, QLineEdit,
                              QTableWidget, QTableWidgetItem, QHeaderView, QStyledItemDelegate,
-                             QToolButton, QMenu, QAction, QDialog)
+                             QToolButton, QMenu, QAction, QDialog, QSpacerItem)
 from PyQt5.QtGui import QFont, QIcon, QColor, QPalette, QBrush, QPen, QPixmap
-from PyQt5.QtCore import Qt, QSettings, QTranslator, QLocale
+from PyQt5.QtCore import Qt, QSettings, QTranslator, QLocale, QTimer, QSize, QPoint
 from firebase_admin import db, credentials, initialize_app
 import firebase_admin
 from Order_gui import OrderGUI
-from Growing_bed_gui import GrowingBedGUI
+from GrowingBed_gui import GrowingBedGUI
 from Customer_gui import CustomerGUI
 from AnalyticsApp import AnalyticsApp
 from FarmVisualGUI import FarmVisualGUI
@@ -23,6 +23,9 @@ from matplotlib.figure import Figure
 from collections import defaultdict
 from datetime import datetime
 import requests
+from ChatGUI import ChatGUI
+from user_management import UserManagement
+from UI.UserManagementGUI import UserManagementGUI
 
 # Initialize Firebase
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Current file location
@@ -255,6 +258,42 @@ class StatusBadgeDelegate(QStyledItemDelegate):
         size.setHeight(size.height() + 8)
         return size
 
+class ModernKpiCard(QFrame):
+    def __init__(self, title, value, icon, color):
+        super().__init__()
+        self.setStyleSheet(f"""
+            QFrame {{
+                background: #f4f6fa;
+                border-radius: 12px;
+                padding: 15px;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.10);
+            }}
+            QLabel {{
+                color: #222;
+                font-family: 'Roboto', 'Open Sans', 'Segoe UI', Arial, sans-serif;
+                font-size: 15pt;
+                font-weight: 500;
+                qproperty-alignment: AlignCenter;
+            }}
+        """)
+        self.setMinimumSize(120, 120)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        icon_label = QLabel(icon)
+        icon_label.setFont(QFont("Segoe UI Emoji", 32))
+        icon_label.setAlignment(Qt.AlignHCenter)
+        layout.addWidget(icon_label)
+        title_label = QLabel(title)
+        title_label.setFont(QFont("Roboto", 14, QFont.Bold))
+        title_label.setAlignment(Qt.AlignHCenter)
+        title_label.setWordWrap(True)
+        layout.addWidget(title_label)
+        value_label = QLabel(str(value))
+        value_label.setFont(QFont("Roboto", 18, QFont.Bold))
+        value_label.setAlignment(Qt.AlignHCenter)
+        layout.addWidget(value_label)
+
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -308,86 +347,46 @@ class DashboardWindow(QWidget):
         self.init_ui()
 
     def init_ui(self):
-        layout = QVBoxLayout()
-        layout.setSpacing(20)
-        layout.setContentsMargins(20, 20, 20, 20)
-
-        # Alerts section
-        alerts_layout = QHBoxLayout()
-        alerts_layout.setAlignment(Qt.AlignLeft)
-        self.alerts_btn = QToolButton()
-        self.alerts_btn.setText("🔔")
-        self.alerts_btn.setToolTip("Alerts")
-        self.alerts_btn.setPopupMode(QToolButton.InstantPopup)
-        self.alerts_btn.setStyleSheet("font-size: 22px; color: #856404; background: transparent; border: none;")
-        # Badge for number of alerts
-        alerts = get_alerts_from_firebase()
-        if alerts:
-            self.alerts_btn.setText(f"🔔 {len(alerts)}")
-        # Dropdown menu
-        menu = QMenu()
-        if alerts:
-            for alert in alerts:
-                action = QAction(alert, self)
-                menu.addAction(action)
-        else:
-            menu.addAction(QAction("No alerts", self))
-        self.alerts_btn.setMenu(menu)
-        alerts_layout.addWidget(self.alerts_btn)
-        layout.addLayout(alerts_layout)
-
-        # KPI Cards
-        kpi_layout = QHBoxLayout()
+        layout = QVBoxLayout(self)
+        layout.setSpacing(24)
+        layout.setContentsMargins(30, 30, 30, 30)
+        # Top bar
+        top_bar = QHBoxLayout()
+        user_icon = QLabel("👤")
+        user_icon.setFont(QFont("Segoe UI Emoji", 24))
+        user_label = QLabel("Welcome, Admin!")
+        user_label.setFont(QFont("Segoe UI", 22, QFont.Bold))
+        user_label.setStyleSheet("color: #23272e;")
+        top_bar.addWidget(user_icon)
+        top_bar.addWidget(user_label)
+        top_bar.addStretch()
+        layout.addLayout(top_bar)
+        # KPI cards
+        kpi_row = QHBoxLayout()
         kpis = [
-            ("💰 Total Revenue", f"₪{self.kpi_data['total_revenue']:,.0f}", "#e0ffe0"),
-            ("📦 Active Orders", str(self.kpi_data['active_orders']), "#e0f7fa"),
-            ("👤 Customers", str(self.kpi_data['num_customers']), "#f3e9ff"),
-            ("🌱 Occupancy", f"{self.kpi_data['occupancy']}%", "#fff3e0"),
+            ("Total Revenue", f"₪{self.kpi_data['total_revenue']:,.0f}", "💰", "#e0f7fa"),
+            ("Active Orders", str(self.kpi_data['active_orders']), "📦", "#f3e5f5"),
+            ("Customers", str(self.kpi_data['num_customers']), "👥", "#e8f5e9"),
+            ("Occupancy", f"{self.kpi_data['occupancy']}%", "🌱", "#fff3e0"),
         ]
-        for title, value, color in kpis:
-            card = self.create_kpi_card(title, value, color)
-            kpi_layout.addWidget(card)
-        layout.addLayout(kpi_layout)
-
+        for title, value, icon, color in kpis:
+            kpi_card = ModernKpiCard(title, value, icon, color)
+            kpi_row.addWidget(kpi_card)
+        layout.addLayout(kpi_row)
         # Charts section
-        charts_layout = QHBoxLayout()
-        # Revenue chart
+        charts_row = QHBoxLayout()
         revenue_chart = self.create_revenue_chart()
-        charts_layout.addWidget(revenue_chart, 2)
-        # Occupancy chart
+        charts_row.addWidget(revenue_chart, 2)
         occupancy_chart = self.create_occupancy_chart()
-        charts_layout.addWidget(occupancy_chart, 1)
-        layout.addLayout(charts_layout)
-
+        charts_row.addWidget(occupancy_chart, 1)
+        layout.addLayout(charts_row)
         # Recent orders table
         orders_label = QLabel("Recent Orders:")
         orders_label.setStyleSheet("font-size: 18px; font-weight: bold; margin-top: 20px;")
         layout.addWidget(orders_label)
-
         orders_table = self.create_orders_table()
         layout.addWidget(orders_table)
-
         self.setLayout(layout)
-
-    def create_kpi_card(self, title, value, color):
-        card = QFrame()
-        card.setStyleSheet(f"""
-            QFrame {{
-                background-color: {color};
-                border-radius: 12px;
-                padding: 15px;
-            }}
-        """)
-        layout = QVBoxLayout(card)
-        
-        title_label = QLabel(title)
-        title_label.setStyleSheet("font-size: 14px; font-weight: bold;")
-        value_label = QLabel(value)
-        value_label.setStyleSheet("font-size: 24px; font-weight: bold;")
-        
-        layout.addWidget(title_label)
-        layout.addWidget(value_label)
-        return card
 
     def create_revenue_chart(self):
         months, revenue = get_monthly_revenue()
@@ -541,674 +540,576 @@ class DashboardWindow(QWidget):
         table.setItemDelegateForColumn(3, StatusBadgeDelegate(status_colors, table))
         return table
 
-class Sidebar(QFrame):
+class ModernSidebar(QFrame):
     def __init__(self, parent=None, nav_callbacks=None):
         super().__init__(parent)
-        self.setObjectName("Sidebar")
-        self.setFixedWidth(220)
-        self.expanded = True
-        self.nav_callbacks = nav_callbacks or {}
-        self.menu_items = [
-            ("📊", "Dashboard", self.nav_callbacks.get("dashboard")),
-            ("🏡", "Farm Visual", self.nav_callbacks.get("farm_visual")),
-            ("📦", "Orders", self.nav_callbacks.get("orders")),
-            ("🛏️", "Growing Beds", self.nav_callbacks.get("growing_beds")),
-            ("🏭", "Warehouse", self.nav_callbacks.get("warehouse")),
-            ("📊", "View Analytics", self.nav_callbacks.get("analytics")),
-            ("👤", "Customers", self.nav_callbacks.get("customers")),
-            ("📤", "Upload Excel", self.nav_callbacks.get("upload_excel")),
-            ("🚪", "Logout", self.nav_callbacks.get("logout")),
-        ]
+        self.setObjectName("sidebar")
         self.setStyleSheet("""
-            QFrame#Sidebar {
-                background-color: #181c24;
-                border: none;
-                border-radius: 16px;
+            QFrame#sidebar {
+                background: #2d3436;
+                min-width: 240px;
+                max-width: 240px;
             }
-            QPushButton.menuBtn {
-                background: transparent;
+            QPushButton {
                 color: #fff;
                 border: none;
-                font-size: 17px;
                 text-align: left;
-                padding: 12px 0 12px 10px;
-                border-radius: 8px;
-                margin: 5px 10px;
+                padding: 12px 20px;
+                font-size: 14px;
                 font-weight: 500;
-                transition: all 0.15s;
             }
-            QPushButton.menuBtn:hover, QPushButton.menuBtn:checked {
-                background-color: #232a36;
-                color: #7ed6df;
+            QPushButton:hover {
+                background: #353b48;
+            }
+            QPushButton:checked {
+                background: #43a047;
                 font-weight: bold;
-                transform: scale(1.06);
-            }
-            QPushButton#toggleBtn {
-                background: transparent;
-                color: #fff;
-                border: none;
-                font-size: 20px;
-                margin: 0 0 10px 0;
-                padding: 8px 0 8px 10px;
-                border-radius: 8px;
-            }
-            QPushButton#toggleBtn:hover {
-                background-color: #232a36;
-            }
-            QLabel#SidebarTitle {
-                background: transparent;
-                color: #fff;
-                font-size: 22px;
-                font-weight: bold;
-                margin: 18px 0 18px 10px;
-            }
-            QFrame#ProfileFrame {
-                background: transparent;
-                border: none;
-                border-top: 1px solid #232a36;
-                margin-top: 10px;
-                padding-top: 16px;
-                padding-bottom: 0px;
-            }
-            QLabel#ProfileName {
-                color: #fff;
-                font-size: 16px;
-                font-weight: bold;
-                background: transparent;
-                padding-left: 0px;
-            }
-            QLabel#ProfilePic {
-                border-radius: 18px;
-                background: #232a36;
-                min-width: 36px;
-                min-height: 36px;
-                max-width: 36px;
-                max-height: 36px;
-                font-size: 22px;
-                qproperty-alignment: AlignCenter;
-            }
-            QPushButton#ProfileMenuBtn {
-                background: transparent;
-                color: #fff;
-                border: none;
-                font-size: 20px;
-                padding: 0 6px;
-            }
-            QPushButton#ProfileMenuBtn:hover {
-                color: #7ed6df;
-            }
-            QPushButton#SettingsBtn {
-                background: transparent;
-                color: #b0b0b0;
-                border: none;
-                font-size: 16px;
-                text-align: left;
-                padding: 10px 0 10px 10px;
-                border-radius: 8px;
-                margin: 8px 10px 0 10px;
-                font-weight: 500;
-                transition: all 0.15s;
-            }
-            QPushButton#SettingsBtn:hover {
-                background-color: #232a36;
-                color: #7ed6df;
             }
         """)
-        self.layout = QVBoxLayout(self)
-        self.layout.setSpacing(0)
-        self.layout.setContentsMargins(0, 20, 0, 20)
-        # Toggle button
-        self.toggle_btn = QPushButton("⬅️", self)
-        self.toggle_btn.setObjectName("toggleBtn")
-        self.toggle_btn.clicked.connect(self.toggle_sidebar)
-        self.layout.addWidget(self.toggle_btn)
-        # Title
-        self.title = QLabel("⚙️ Settings")
-        self.title.setObjectName("SidebarTitle")
-        self.layout.addWidget(self.title)
-        # Menu
-        self.menu_btns = []
-        for icon, text, callback in self.menu_items:
-            btn = QPushButton(f"{icon}  {text}")
-            btn.setProperty('class', 'menuBtn')
-            btn.setCursor(Qt.PointingHandCursor)
-            if callback:
-                btn.clicked.connect(callback)
-            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            self.layout.addWidget(btn)
-            self.menu_btns.append((btn, icon, text))
-        self.layout.addStretch()
-        # Profile section
-        user = get_logged_in_user() or {}
-        name = user.get("Name") or user.get("Username") or "Itay"
-        photo = user.get("PhotoURL") or user.get("photo")
-        profile_frame = QFrame()
-        profile_frame.setObjectName("ProfileFrame")
-        profile_layout = QHBoxLayout(profile_frame)
-        profile_layout.setContentsMargins(16, 0, 16, 0)
-        profile_layout.setSpacing(10)
-        # Profile pic
-        profile_pic = QLabel()
-        profile_pic.setObjectName("ProfilePic")
-        if photo:
-            pixmap = QPixmap()
-            pixmap.loadFromData(requests.get(photo).content) if photo.startswith('http') else pixmap.load(photo)
-            pixmap = pixmap.scaled(36, 36, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            profile_pic.setPixmap(pixmap)
-        else:
-            profile_pic.setText("🦁")
-        profile_layout.addWidget(profile_pic)
-        # Name
-        profile_name = QLabel(name)
-        profile_name.setObjectName("ProfileName")
-        profile_layout.addWidget(profile_name)
-        # Menu button
-        profile_menu_btn = QPushButton("⋮")
-        profile_menu_btn.setObjectName("ProfileMenuBtn")
-        profile_menu_btn.setCursor(Qt.PointingHandCursor)
-        profile_menu_btn.setFixedWidth(28)
-        profile_layout.addWidget(profile_menu_btn)
-        profile_layout.addStretch()
-        self.layout.addWidget(profile_frame)
-        # Settings button
-        self.settings_btn = QPushButton("⚙️  Settings")
-        self.settings_btn.setObjectName("SettingsBtn")
-        self.settings_btn.setCursor(Qt.PointingHandCursor)
-        self.settings_btn.clicked.connect(self.open_settings)
-        self.layout.addWidget(self.settings_btn)
-        self.update_sidebar()
-
-    def toggle_sidebar(self):
-        self.expanded = not self.expanded
-        self.setFixedWidth(60 if not self.expanded else 220)
-        self.toggle_btn.setText("➡️" if not self.expanded else "⬅️")
-        self.title.setVisible(self.expanded)
-        for btn, icon, text in self.menu_btns:
-            if self.expanded:
-                btn.setText(f"{icon}  {text}")
-                btn.setStyleSheet("")
-            else:
-                btn.setText(icon)
-                btn.setStyleSheet("font-size: 22px; text-align: center; padding-left: 0px; padding-right: 0px;")
-
-    def update_sidebar(self):
-        self.toggle_sidebar()  # To set initial state
-        self.toggle_sidebar()  # And back to expanded
-
-    def open_settings(self):
-        dlg = SettingsDialog(self.window())
-        dlg.exec_()
-
-class Main_gui(QMainWindow):
-    def __init__(self, username=None, role=None):
-        super().__init__()
-        # Initialize window attributes
-        self.order_gui = None
-        self.customer_gui = None
-        self.growing_bed_gui = None
-        self.warehouse_gui = None
-        self.farm_visual = None
-        self.analytics_gui = None
-        self.dashboard = None
-        self.simulator = None
-
-        self.settings = QSettings('MushroomFarm', 'Main_gui')
-        self.translator = QTranslator()
-        self.current_language = self.settings.value('language', 'en')  # Default to English
-        self.current_theme = self.settings.value('theme', 'light')
-
-        # Initialize translations before creating UI
-        self.current_translations = TRANSLATIONS[self.current_language]
-
-        # שמור את המשתמש וה-role
-        self.current_user = username
-        self.current_role = role
-
+        self.nav_callbacks = nav_callbacks
         self.init_ui()
-        self.apply_theme(self.current_theme)
-
-        # Make window fullscreen
-        self.showMaximized()
 
     def init_ui(self):
-        self.setWindowTitle(self.tr('title'))
-        self.setLayoutDirection(Qt.LeftToRight)
-        self.main_layout = QHBoxLayout()
-        self.main_layout.setSpacing(20)
-        self.main_layout.setContentsMargins(20, 20, 20, 20)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        # Logo and title
+        logo_layout = QHBoxLayout()
+        logo = QLabel()
+        pix = QPixmap(32, 32)
+        pix.fill(QColor("#43a047"))
+        logo.setPixmap(pix)
+        logo.setFixedSize(32, 32)
+        title = QLabel("Mush")
+        title.setFont(QFont("Segoe UI", 22, QFont.Bold))
+        title.setStyleSheet("color: #fff;")
+        logo_layout.addWidget(logo)
+        logo_layout.addWidget(title)
+        logo_layout.addStretch()
+        layout.addLayout(logo_layout)
+        layout.addSpacing(18)
 
-        # Sidebar navigation callbacks
-        nav_callbacks = {
-            "dashboard": self.open_dashboard,
-            "farm_visual": self.open_farm_visual,
-            "orders": self.open_order_gui,
-            "growing_beds": self.open_growing_bed_gui,
-            "warehouse": self.open_warehouse_gui,
-            "analytics": self.open_analytics_gui,
-            "customers": self.open_customer_gui,
-            "upload_excel": self.upload_excel_logs,
-            "logout": self.handle_logout,
-        }
-        sidebar = Sidebar(nav_callbacks=nav_callbacks)
-        self.main_layout.addWidget(sidebar)
+        # Menu buttons
+        self.buttons = []
+        menu_items = [
+            ("Dashboard", "dashboard", "📊"),
+            ("Admin Dashboard", "admin_dashboard", "👑"),
+            ("Orders", "orders", "📦"),
+            ("Growing Beds", "growing_beds", "🛏️"),
+            ("Customers", "customers", "👥"),
+            ("Warehouse", "warehouse", "🏪"),
+            ("Farm Visual", "farm_visual", "🌾"),
+            ("Analytics", "analytics", "📈"),
+            ("User Management", "user_management", "👤"),
+            ("Settings", "settings", "⚙️")
+        ]
 
-        # כפתור ניהול משתמשים (רק לאדמין)
-        if self.current_role == 'admin':
-            self.admin_btn = QPushButton('User Management')
-            self.admin_btn.setStyleSheet("background-color: #1976d2; color: white; font-weight: bold; border-radius: 8px; padding: 8px 16px;")
-            self.admin_btn.clicked.connect(self.open_admin_panel)
-            sidebar.layout.addWidget(self.admin_btn)
+        for text, name, icon in menu_items:
+            btn = QPushButton(f"{icon}  {text}")
+            btn.setCheckable(True)
+            btn.setProperty("page", name)
+            btn.clicked.connect(lambda checked, b=btn: self.button_clicked(b))
+            layout.addWidget(btn)
+            self.buttons.append(btn)
 
-        # Add simulation control button
-        simulation_btn = QPushButton("🎮 Start Simulation")
-        simulation_btn.setObjectName("simulationBtn")
-        simulation_btn.clicked.connect(self.toggle_simulation)
-        simulation_btn.setStyleSheet("""
-            QPushButton#simulationBtn {
-                background-color: #4CAF50;
-                color: white;
-                border: none;
-                padding: 10px 20px;
-                border-radius: 5px;
-                font-size: 14px;
+        layout.addStretch()
+
+        # Back to Dashboard button
+        back_btn = QPushButton("↩️  Back to Dashboard")
+        back_btn.setStyleSheet("""
+            QPushButton {
+                color: #3498db;
+                margin: 10px;
                 font-weight: bold;
             }
-            QPushButton#simulationBtn:hover {
-                background-color: #45a049;
-            }
-            QPushButton#simulationBtn:checked {
-                background-color: #f44336;
+            QPushButton:hover {
+                background: #2d3436;
             }
         """)
-        sidebar.layout.addWidget(simulation_btn)
+        back_btn.clicked.connect(lambda: self.button_clicked(self.buttons[0]))  # First button is Dashboard
+        layout.addWidget(back_btn)
 
-        # Main content area with stacked widget
-        self.content_stack = QStackedWidget()
-        self.dashboard = DashboardWindow()
-        self.content_stack.addWidget(self.dashboard)
-        self.placeholder = QWidget()
-        self.content_stack.addWidget(self.placeholder)
-        self.main_layout.addWidget(self.content_stack, stretch=2)
+        # Logout button
+        logout_btn = QPushButton("🚪  Logout")
+        logout_btn.setStyleSheet("""
+            QPushButton {
+                color: #ff7675;
+                margin: 10px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #2d3436;
+            }
+        """)
+        logout_btn.clicked.connect(self.logout)
+        layout.addWidget(logout_btn)
 
-        container = QWidget()
-        container.setLayout(self.main_layout)
-        self.setCentralWidget(container)
+    def button_clicked(self, button):
+        for btn in self.buttons:
+            btn.setChecked(btn == button)
+        if self.nav_callbacks and button.property("page") in self.nav_callbacks:
+            self.nav_callbacks[button.property("page")]()
 
-    def change_language(self, language_text):
-        language_map = {
-            'עברית': 'he',
-            'English': 'en',
-            'العربية': 'ar'
-        }
-        language_code = language_map.get(language_text, 'en')
-        if language_code != self.current_language:
-            self.current_language = language_code
-            self.settings.setValue('language', language_code)
-            self.current_translations = TRANSLATIONS[language_code]
-            self.init_ui()
+    def logout(self):
+        self.parent().handle_logout()
 
-    def tr(self, text):
-        return self.current_translations.get(text.lower(), text)
+class Main_gui(QMainWindow):
+    def __init__(self, user_data):
+        super().__init__()
+        self.user_data = user_data
+        self.chat_button = None
+        self.chat_gui = None
+        self.setWindowFlags(Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
+        self.init_ui()
+        self.setup_navigation()
+        self.add_floating_chat_button()
+        self.show_dashboard()  # Show dashboard by default
+        self.showMaximized()
+        self._old_pos = None
 
-    def change_theme(self, theme):
-        self.current_theme = theme
-        self.settings.setValue('theme', theme)
-        self.apply_theme(theme)
+    def init_ui(self):
+        self.setWindowTitle("Mushroom Farm Management System")
+        self.setMinimumSize(1200, 800)
+        self.setStyleSheet("""
+            QMainWindow {
+                background: #f5f6fa;
+            }
+            QLabel {
+                color: #2d3436;
+            }
+        """)
+        self.setup_navigation()
+        # Custom title bar
+        title_bar = QFrame()
+        title_bar.setObjectName("titleBar")
+        title_bar.setStyleSheet("""
+            QFrame#titleBar {
+                background: #23272e;
+                min-height: 38px;
+                max-height: 38px;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+            }
+        """)
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(8, 0, 8, 0)
+        logo = QLabel()
+        logo_path = os.path.join(os.path.dirname(__file__), "logo_without_white.png")
+        pix = QPixmap(logo_path)
+        pix = pix.scaled(32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        logo.setPixmap(pix)
+        logo.setFixedSize(32, 32)
+        title_layout.addWidget(logo)
+        title_label = QLabel("Mush | Farm Management System")
+        title_label.setStyleSheet("color: #fff; font-size: 16px; font-weight: bold;")
+        title_layout.addWidget(title_label)
+        title_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        # Minimize button
+        btn_min = QPushButton("–")
+        btn_min.setFixedSize(32, 28)
+        btn_min.setStyleSheet("background: none; color: #fff; font-size: 18px; border: none;")
+        btn_min.clicked.connect(self.showMinimized)
+        title_layout.addWidget(btn_min)
+        # Maximize/restore button
+        btn_max = QPushButton("❐")
+        btn_max.setFixedSize(32, 28)
+        btn_max.setStyleSheet("background: none; color: #fff; font-size: 16px; border: none;")
+        btn_max.clicked.connect(self.toggle_max_restore)
+        title_layout.addWidget(btn_max)
+        # Close button
+        btn_close = QPushButton("✕")
+        btn_close.setFixedSize(32, 28)
+        btn_close.setStyleSheet("background: none; color: #ff7675; font-size: 18px; border: none;")
+        btn_close.clicked.connect(self.close)
+        title_layout.addWidget(btn_close)
+        # Main widget and layout
+        main_widget = QWidget()
+        self.setCentralWidget(main_widget)
+        main_layout = QVBoxLayout(main_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        main_layout.addWidget(title_bar)
+        # Content area
+        content_frame = QFrame()
+        content_layout = QHBoxLayout(content_frame)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+        # Sidebar
+        self.sidebar = ModernSidebar(self, self.nav_callbacks)
+        content_layout.addWidget(self.sidebar)
+        # Content area
+        self.content_area = QStackedWidget()
+        self.content_area.setStyleSheet("""
+            QStackedWidget {
+                background: #f5f6fa;
+            }
+        """)
+        content_layout.addWidget(self.content_area)
+        main_layout.addWidget(content_frame)
+        # Initialize all pages
+        self.init_pages()
+        # Drag window events
+        title_bar.mousePressEvent = self.title_bar_mouse_press
+        title_bar.mouseMoveEvent = self.title_bar_mouse_move
 
-    def apply_theme(self, theme):
-        if theme == 'dark':
-            dark_style = """
-                QMainWindow, QWidget {
-                    background-color: #1a1a1a;
-                    color: #ffffff;
-                }
-                QLabel {
-                    color: #ffffff;
-                }
-                QPushButton {
-                    color: white;
-                    border: none;
-                }
-                QFrame#settingsPanel {
-                    background-color: #2d2d2d;
-                    border: 1px solid #404040;
-                    border-radius: 10px;
-                }
-                QComboBox, QRadioButton {
-                    background-color: #333333;
-                    color: #ffffff;
-                    border: 1px solid #404040;
-                    padding: 8px;
-                }
-                QComboBox:hover, QRadioButton:hover {
-                    border-color: #666666;
-                    background-color: #404040;
-                }
-                QTableView {
-                    background-color: #2d2d2d;
-                    alternate-background-color: #333333;
-                    color: #ffffff;
-                    gridline-color: #404040;
-                    border: 1px solid #404040;
-                    selection-background-color: #2980b9;
-                    selection-color: #ffffff;
-                }
-                QTableView::item {
-                    padding: 8px;
-                    border-bottom: 1px solid #404040;
-                }
-                QTableView::item:selected {
-                    background-color: #2980b9;
-                    color: #ffffff;
-                }
-                QTableView::item:hover {
-                    background-color: #34495e;
-                }
-                QHeaderView::section {
-                    background-color: #2d2d2d;
-                    color: #ffffff;
-                    padding: 10px;
-                    border: 1px solid #404040;
-                    font-weight: bold;
-                }
-                QScrollBar:vertical {
-                    background-color: #2d2d2d;
-                    width: 14px;
-                    margin: 0px;
-                }
-                QScrollBar::handle:vertical {
-                    background-color: #404040;
-                    min-height: 30px;
-                    border-radius: 7px;
-                }
-                QScrollBar::handle:vertical:hover {
-                    background-color: #4a4a4a;
-                }
-                QScrollBar:horizontal {
-                    background-color: #2d2d2d;
-                    height: 14px;
-                    margin: 0px;
-                }
-                QScrollBar::handle:horizontal {
-                    background-color: #404040;
-                    min-width: 30px;
-                    border-radius: 7px;
-                }
-                QScrollBar::handle:horizontal:hover {
-                    background-color: #4a4a4a;
-                }
-                QLineEdit {
-                    background-color: #333333;
-                    color: #ffffff;
-                    border: 1px solid #404040;
-                    padding: 8px;
-                    border-radius: 5px;
-                }
-                QLineEdit:focus {
-                    border-color: #2980b9;
-                }
-            """
-            self.setStyleSheet(dark_style)
-
-            # Update the title label style for dark mode
-            title_label = self.findChild(QLabel, "title_label")
-            if title_label:
-                title_label.setStyleSheet("""
-                    QLabel {
-                        font-size: 32px;
-                        color: #ffffff;
-                        padding: 20px;
-                        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, 
-                            stop:0 #2d2d2d, stop:1 transparent);
-                        border-radius: 15px;
-                    }
-                """)
-
-            # Apply dark theme to child windows if they exist
-            if hasattr(self, 'order_gui') and self.order_gui is not None:
-                self.order_gui.setStyleSheet(dark_style)
-            if hasattr(self, 'customer_gui') and self.customer_gui is not None:
-                self.customer_gui.setStyleSheet(dark_style)
-            if hasattr(self, 'growing_bed_gui') and self.growing_bed_gui is not None:
-                self.growing_bed_gui.setStyleSheet(dark_style)
-            if hasattr(self, 'warehouse_gui') and self.warehouse_gui is not None:
-                self.warehouse_gui.setStyleSheet(dark_style)
-            if hasattr(self, 'farm_visual') and self.farm_visual is not None:
-                self.farm_visual.setStyleSheet(dark_style)
-            if hasattr(self, 'analytics_gui') and self.analytics_gui is not None:
-                self.analytics_gui.setStyleSheet(dark_style)
+    def toggle_max_restore(self):
+        if self.isMaximized():
+            self.showNormal()
         else:
-            # Light theme
-            light_style = """
-                QMainWindow, QWidget {
-                    background-color: #f5f5f5;
-                    color: #333333;
-                }
-                QLabel {
-                    color: #333333;
-                }
-                QPushButton {
-                    color: white;
-                    border: none;
-                }
-                QFrame#settingsPanel {
-                    background-color: #ffffff;
-                    border: 1px solid #dee2e6;
-                    border-radius: 10px;
-                }
-                QComboBox, QRadioButton {
-                    background-color: white;
-                    color: #333333;
-                    border: 1px solid #ced4da;
-                    padding: 8px;
-                }
-                QComboBox:hover, QRadioButton:hover {
-                    border-color: #80bdff;
-                }
-                QTableView {
-                    background-color: #ffffff;
-                    alternate-background-color: #f8f9fa;
-                    color: #333333;
-                    gridline-color: #dee2e6;
-                    border: 1px solid #dee2e6;
-                    selection-background-color: #007bff;
-                    selection-color: #ffffff;
-                }
-                QTableView::item {
-                    padding: 8px;
-                    border-bottom: 1px solid #dee2e6;
-                }
-                QTableView::item:selected {
-                    background-color: #007bff;
-                    color: #ffffff;
-                }
-                QTableView::item:hover {
-                    background-color: #e9ecef;
-                }
-                QHeaderView::section {
-                    background-color: #f8f9fa;
-                    color: #333333;
-            padding: 10px;
-                    border: 1px solid #dee2e6;
-                    font-weight: bold;
-                }
-                QScrollBar:vertical {
-                    background-color: #f8f9fa;
-                    width: 14px;
-                    margin: 0px;
-                }
-                QScrollBar::handle:vertical {
-                    background-color: #dee2e6;
-                    min-height: 30px;
-                    border-radius: 7px;
-                }
-                QScrollBar::handle:vertical:hover {
-                    background-color: #ced4da;
-                }
-                QScrollBar:horizontal {
-                    background-color: #f8f9fa;
-                    height: 14px;
-                    margin: 0px;
-                }
-                QScrollBar::handle:horizontal {
-                    background-color: #dee2e6;
-                    min-width: 30px;
-                    border-radius: 7px;
-                }
-                QScrollBar::handle:horizontal:hover {
-                    background-color: #ced4da;
-                }
-                QLineEdit {
-                    background-color: #ffffff;
-                    color: #333333;
-                    border: 1px solid #ced4da;
-                    padding: 8px;
-                    border-radius: 5px;
-                }
-                QLineEdit:focus {
-                    border-color: #80bdff;
-                }
-            """
-            self.setStyleSheet(light_style)
+            self.showMaximized()
 
-            # Update the title label style for light mode
-            title_label = self.findChild(QLabel, "title_label")
-            if title_label:
-                title_label.setStyleSheet("""
-                    QLabel {
+    def title_bar_mouse_press(self, event):
+        if event.button() == Qt.LeftButton:
+            self._old_pos = event.globalPos()
+
+    def title_bar_mouse_move(self, event):
+        if self._old_pos is not None:
+            delta = event.globalPos() - self._old_pos
+            self.move(self.x() + delta.x(), self.y() + delta.y())
+            self._old_pos = event.globalPos()
+
+    def setup_navigation(self):
+        self.nav_callbacks = {
+            "dashboard": self.show_dashboard,
+            "admin_dashboard": self.show_admin_dashboard,
+            "orders": self.show_orders,
+            "growing_beds": self.show_growing_beds,
+            "customers": self.show_customers,
+            "warehouse": self.show_warehouse,
+            "farm_visual": self.show_farm_visual,
+            "analytics": self.show_analytics,
+            "user_management": self.show_user_management,
+            "settings": self.show_settings
+        }
+
+    def show_dashboard(self):
+        self.content_area.setCurrentWidget(self.dashboard_page)
+        self.update_page_title("Dashboard")
+
+    def show_admin_dashboard(self):
+        self.content_area.setCurrentWidget(self.admin_dashboard_page)
+        self.update_page_title("Admin Dashboard")
+
+    def show_orders(self):
+        self.content_area.setCurrentWidget(self.orders_page)
+        self.update_page_title("Orders")
+
+    def show_growing_beds(self):
+        self.content_area.setCurrentWidget(self.growing_beds_page)
+        self.update_page_title("Growing Beds")
+
+    def show_customers(self):
+        self.content_area.setCurrentWidget(self.customers_page)
+        self.update_page_title("Customers")
+
+    def show_warehouse(self):
+        self.content_area.setCurrentWidget(self.warehouse_page)
+        self.update_page_title("Warehouse")
+
+    def show_farm_visual(self):
+        self.content_area.setCurrentWidget(self.farm_visual_page)
+        self.update_page_title("Farm Visual")
+
+    def show_analytics(self):
+        self.content_area.setCurrentWidget(self.analytics_page)
+        self.update_page_title("Analytics")
+
+    def show_user_management(self):
+        self.content_area.setCurrentWidget(self.user_management_page)
+        self.update_page_title("User Management")
+
+    def show_settings(self):
+        self.content_area.setCurrentWidget(self.settings_page)
+        self.update_page_title("Settings")
+
+    def update_page_title(self, title):
+        self.setWindowTitle(f"Mushroom Farm Management System - {title}")
+
+    def init_admin_dashboard(self):
+        layout = QVBoxLayout(self.admin_dashboard_page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        admin_dashboard = AdminDashboard()
+        layout.addWidget(admin_dashboard)
+
+    def init_user_management_page(self):
+        layout = QVBoxLayout(self.user_management_page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        user_management_widget = UserManagementGUI()
+        layout.addWidget(user_management_widget)
+
+    def add_floating_chat_button(self):
+        print('[DEBUG] add_floating_chat_button called')
+        if hasattr(self, 'chat_button') and self.chat_button:
+            print('[DEBUG] Deleting existing chat_button')
+            self.chat_button.deleteLater()
+        self.chat_button = QPushButton(self)
+        self.chat_button.setObjectName("floatingChatBtn")
+        icon_path = os.path.join(os.path.dirname(__file__), "chat_logo.png")
+        if os.path.exists(icon_path):
+            print(f'[DEBUG] Found logo at {icon_path}')
+            self.chat_button.setIcon(QIcon(icon_path))
+            self.chat_button.setIconSize(QSize(48, 48))
+        else:
+            print('[DEBUG] Logo not found, using default text')
+            self.chat_button.setText("💬")
+        self.chat_button.setStyleSheet("""
+            QPushButton#floatingChatBtn {
+                background-color: #25d366;
+                border-radius: 28px;
+                padding: 0px;
+                min-width: 56px;
+                min-height: 56px;
+                max-width: 56px;
+                max-height: 56px;
+                    color: white;
                         font-size: 32px;
-                        color: #2c3e50;
-                        padding: 20px;
-                        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, 
-                            stop:0 #f5f5f5, stop:1 transparent);
-                        border-radius: 15px;
+                box-shadow: 0px 4px 16px rgba(0,0,0,0.18);
+            }
+            QPushButton#floatingChatBtn:hover {
+                background-color: #128c7e;
                     }
                 """)
+        self.chat_button.setCursor(Qt.PointingHandCursor)
+        self.chat_button.clicked.connect(self.open_chat)
+        self.position_floating_chat_button()
+        self.chat_button.raise_()
+        self.chat_button.show()
+        print('[DEBUG] chat_button.show() called')
 
-    def open_dashboard(self):
-        try:
-            # Create new dashboard window
-            self.dashboard = AdminDashboard()
-            self.dashboard.setWindowModality(Qt.ApplicationModal)  # Make it modal
-            self.dashboard.show()
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to open Dashboard: {str(e)}")
-            print(f"Error opening Dashboard: {str(e)}")
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.position_floating_chat_button()
 
-    def open_order_gui(self):
-        try:
-            self.order_gui = OrderGUI()
-            self.order_gui.show()
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to open Order Management: {str(e)}")
-            print(f"Error opening Order Management: {str(e)}")
+    def position_floating_chat_button(self):
+        if hasattr(self, 'chat_button') and self.chat_button:
+            margin = 32
+            btn_size = 56
+            x = self.width() - btn_size - margin
+            y = self.height() - btn_size - margin
+            print(f'[DEBUG] Moving chat_button to ({x}, {y})')
+            self.chat_button.move(x, y)
+            self.chat_button.raise_()
+            self.chat_button.show()
+            print('[DEBUG] chat_button.show() called after move')
 
-    def open_growing_bed_gui(self):
+    def open_chat(self):
         try:
-            self.growing_bed_gui = GrowingBedGUI()
-            self.growing_bed_gui.show()
+            if not self.chat_gui:
+                self.chat_gui = ChatGUI(self)
+            self.chat_gui.show()
+            self.chat_gui.raise_()
+            self.chat_gui.activateWindow()
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to open Growing Beds: {str(e)}")
-            print(f"Error opening Growing Beds: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to open AI Assistant: {str(e)}")
+            print(f"Error opening AI Assistant: {str(e)}")
 
-    def open_warehouse_gui(self):
-        try:
-            self.warehouse_gui = WarehouseGUI()
-            self.warehouse_gui.show()
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to open Warehouse: {str(e)}")
-            print(f"Error opening Warehouse: {str(e)}")
+    def init_pages(self):
+        # Dashboard page
+        self.dashboard_page = QWidget()
+        self.init_dashboard()
+        self.content_area.addWidget(self.dashboard_page)
 
-    def open_customer_gui(self):
-        try:
-            self.customer_gui = CustomerGUI()
-            self.customer_gui.show()
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to open Customer Management: {str(e)}")
-            print(f"Error opening Customer Management: {str(e)}")
+        # Admin Dashboard page
+        self.admin_dashboard_page = QWidget()
+        self.init_admin_dashboard()
+        self.content_area.addWidget(self.admin_dashboard_page)
 
-    def open_analytics_gui(self):
-        try:
-            self.analytics_gui = AnalyticsApp()
-            self.analytics_gui.show()
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to open Analytics: {str(e)}")
-            print(f"Error opening Analytics: {str(e)}")
+        # Orders page
+        self.orders_page = QWidget()
+        self.init_orders_page()
+        self.content_area.addWidget(self.orders_page)
 
-    def open_farm_visual(self):
-        try:
-            self.farm_visual = FarmVisualGUI()
-            self.farm_visual.show()
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to open Farm Visual: {str(e)}")
-            print(f"Error opening Farm Visual: {str(e)}")
+        # Growing Beds page
+        self.growing_beds_page = QWidget()
+        self.init_growing_beds_page()
+        self.content_area.addWidget(self.growing_beds_page)
 
-    def upload_excel_logs(self):
-        try:
-            file_name, _ = QFileDialog.getOpenFileName(self, "Select Excel File", "", "Excel Files (*.xlsx *.xls)")
-            if file_name:
-                # TODO: Implement Excel upload logic
-                QMessageBox.information(self, "Success", "Excel file uploaded successfully!")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to upload Excel file: {str(e)}")
-            print(f"Error uploading Excel file: {str(e)}")
+        # Customers page
+        self.customers_page = QWidget()
+        self.init_customers_page()
+        self.content_area.addWidget(self.customers_page)
 
-    def generate_dummy_data(self):
-        try:
-            from generate_dummy_data import upload_dummy_data
-            if upload_dummy_data():
-                QMessageBox.information(self, "Success", "Dummy data generated successfully!")
-            else:
-                QMessageBox.warning(self, "Warning", "Failed to generate dummy data.")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to generate dummy data: {str(e)}")
-            print(f"Error generating dummy data: {str(e)}")
+        # Warehouse page
+        self.warehouse_page = QWidget()
+        self.init_warehouse_page()
+        self.content_area.addWidget(self.warehouse_page)
+
+        # Farm Visual page
+        self.farm_visual_page = QWidget()
+        self.init_farm_visual_page()
+        self.content_area.addWidget(self.farm_visual_page)
+
+        # Analytics page
+        self.analytics_page = QWidget()
+        self.init_analytics_page()
+        self.content_area.addWidget(self.analytics_page)
+
+        # User Management page
+        self.user_management_page = QWidget()
+        self.init_user_management_page()
+        self.content_area.addWidget(self.user_management_page)
+
+        # Settings page
+        self.settings_page = QWidget()
+        self.init_settings_page()
+        self.content_area.addWidget(self.settings_page)
+
+    def init_dashboard(self):
+        layout = QVBoxLayout(self.dashboard_page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        dashboard = DashboardWindow()
+        layout.addWidget(dashboard)
+
+    def init_orders_page(self):
+        layout = QVBoxLayout(self.orders_page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(20)
+
+        # Header
+        header = QLabel("Orders")
+        header.setStyleSheet("""
+            QLabel {
+                font-size: 24px;
+                    font-weight: bold;
+                color: #2d3436;
+            }
+        """)
+        layout.addWidget(header)
+
+        # Orders content
+        orders = OrderGUI()
+        layout.addWidget(orders)
+
+    def init_growing_beds_page(self):
+        layout = QVBoxLayout(self.growing_beds_page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(20)
+
+        # Header
+        header = QLabel("Growing Beds")
+        header.setStyleSheet("""
+                    QLabel {
+                font-size: 24px;
+                font-weight: bold;
+                color: #2d3436;
+                    }
+                """)
+        layout.addWidget(header)
+
+        # Growing beds content
+        growing_beds = GrowingBedGUI()
+        layout.addWidget(growing_beds)
+
+    def init_customers_page(self):
+        layout = QVBoxLayout(self.customers_page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(20)
+
+        # Header
+        header = QLabel("Customers")
+        header.setStyleSheet("""
+            QLabel {
+                font-size: 24px;
+                font-weight: bold;
+                color: #2d3436;
+            }
+        """)
+        layout.addWidget(header)
+
+        # Customers content
+        customers = CustomerGUI()
+        layout.addWidget(customers)
+
+    def init_warehouse_page(self):
+        layout = QVBoxLayout(self.warehouse_page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(20)
+
+        # Header
+        header = QLabel("Warehouse")
+        header.setStyleSheet("""
+            QLabel {
+                font-size: 24px;
+                font-weight: bold;
+                color: #2d3436;
+            }
+        """)
+        layout.addWidget(header)
+
+        # Warehouse content
+        warehouse = WarehouseGUI()
+        layout.addWidget(warehouse)
+
+    def init_farm_visual_page(self):
+        layout = QVBoxLayout(self.farm_visual_page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(20)
+
+        # Header
+        header = QLabel("Farm Visual")
+        header.setStyleSheet("""
+            QLabel {
+                font-size: 24px;
+                font-weight: bold;
+                color: #2d3436;
+            }
+        """)
+        layout.addWidget(header)
+
+        # Farm visual content
+        farm_visual = FarmVisualGUI()
+        layout.addWidget(farm_visual)
+
+    def init_analytics_page(self):
+        layout = QVBoxLayout(self.analytics_page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(20)
+
+        # Header
+        header = QLabel("Analytics")
+        header.setStyleSheet("""
+            QLabel {
+                font-size: 24px;
+                font-weight: bold;
+                color: #2d3436;
+            }
+        """)
+        layout.addWidget(header)
+
+        # Analytics content
+        analytics = AnalyticsApp()
+        layout.addWidget(analytics)
+
+    def init_settings_page(self):
+        layout = QVBoxLayout(self.settings_page)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(20)
+
+        # Header
+        header = QLabel("Settings")
+        header.setStyleSheet("""
+            QLabel {
+                font-size: 24px;
+                font-weight: bold;
+                color: #2d3436;
+            }
+        """)
+        layout.addWidget(header)
+
+        # Settings content
+        settings = SettingsDialog(self)
+        layout.addWidget(settings)
 
     def handle_logout(self):
-        reply = QMessageBox.question(self, 'Logout', 'Are you sure you want to logout?',
-                                   QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            self.close()
-
-    @staticmethod
-    def delete_table(table_name):
-        ref = db.reference(table_name)  # Reference to the table (node)
-        ref.delete()  # Deletes the node
-
-    # delete_table("Batches")
-    # delete_table("Logs")
-
-    # Deletes the "Logs" table
-
-    def toggle_simulation(self):
-        """Toggle the live simulation on/off"""
-        if not self.simulator:
-            try:
-                from live_simulation import start_live_simulation
-                self.simulator = start_live_simulation()
-                self.sender().setText("🎮 Stop Simulation")
-                self.sender().setChecked(True)
-                QMessageBox.information(self, "Simulation", "Live simulation started!")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to start simulation: {str(e)}")
-        else:
-            try:
-                self.simulator.stop_simulation()
-                self.simulator = None
-                self.sender().setText("🎮 Start Simulation")
-                self.sender().setChecked(False)
-                QMessageBox.information(self, "Simulation", "Live simulation stopped!")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to stop simulation: {str(e)}")
-
-    def open_admin_panel(self):
-        # כאן תוכל לייבא ולפתוח את AdminPanel (בהמשך)
-        try:
-            from AdminPanel import AdminPanel
-            self.admin_panel = AdminPanel()
-            self.admin_panel.show()
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to open Admin Panel: {str(e)}")
+        self.close()
+        from LoginGUI import LoginGUI
+        login = LoginGUI()
+        login.show()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
