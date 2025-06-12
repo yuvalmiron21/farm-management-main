@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QWidget,
                              QFrame, QComboBox, QRadioButton, QButtonGroup, QStackedWidget,
                              QScrollArea, QSizePolicy, QGraphicsDropShadowEffect, QLineEdit,
                              QTableWidget, QTableWidgetItem, QHeaderView, QStyledItemDelegate,
-                             QToolButton, QMenu, QAction, QDialog, QSpacerItem)
+                             QToolButton, QMenu, QAction, QDialog, QSpacerItem, QGridLayout)
 from PyQt5.QtGui import QFont, QIcon, QColor, QPalette, QBrush, QPen, QPixmap
 from PyQt5.QtCore import Qt, QSettings, QTranslator, QLocale, QTimer, QSize, QPoint
 from firebase_admin import db, credentials, initialize_app
@@ -26,6 +26,7 @@ import requests
 from ChatGUI import ChatGUI
 from user_management import UserManagement
 from UI.UserManagementGUI import UserManagementGUI
+from UI.live_simulation import MushroomSimulator
 
 # Initialize Firebase
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Current file location
@@ -259,41 +260,78 @@ class StatusBadgeDelegate(QStyledItemDelegate):
         return size
 
 class ModernKpiCard(QFrame):
-    def __init__(self, title, value, icon, color):
+    def __init__(self, title, value, icon, spark_data):
         super().__init__()
+        # Choose color by title with maximum transparency (alpha=0.1)
+        color_map = {
+            'Total Revenue': 'rgba(76,175,80,0.1)',
+            'Active Orders': 'rgba(255,152,0,0.1)',
+            'Customers': 'rgba(33,150,243,0.1)',
+            'Occupancy': 'rgba(156,39,176,0.1)'
+        }
+        bg_color = color_map.get(title, 'rgba(255,255,255,0.1)')
         self.setStyleSheet(f"""
             QFrame {{
-                background: #f4f6fa;
-                border-radius: 12px;
-                padding: 15px;
-                box-shadow: 0 4px 8px rgba(0,0,0,0.10);
+                background: {bg_color};
+                border-radius: 16px;
+                box-shadow: 0 4px 12px rgba(44,62,80,0.1); /* Reduced shadow for smoother look */
             }}
             QLabel {{
-                color: #222;
-                font-family: 'Roboto', 'Open Sans', 'Segoe UI', Arial, sans-serif;
-                font-size: 15pt;
-                font-weight: 500;
-                qproperty-alignment: AlignCenter;
+                background: transparent; /* Ensure no background on labels */
+                padding: 0; /* Remove padding to avoid visible lines */
+                margin: 0; /* Remove margins to avoid gaps */
             }}
         """)
-        self.setMinimumSize(120, 120)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-        icon_label = QLabel(icon)
-        icon_label.setFont(QFont("Segoe UI Emoji", 32))
-        icon_label.setAlignment(Qt.AlignHCenter)
-        layout.addWidget(icon_label)
-        title_label = QLabel(title)
-        title_label.setFont(QFont("Roboto", 14, QFont.Bold))
-        title_label.setAlignment(Qt.AlignHCenter)
-        title_label.setWordWrap(True)
-        layout.addWidget(title_label)
-        value_label = QLabel(str(value))
-        value_label.setFont(QFont("Roboto", 18, QFont.Bold))
-        value_label.setAlignment(Qt.AlignHCenter)
-        layout.addWidget(value_label)
+        self.setFixedSize(340, 120)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 6, 8, 6)  # Reduced margins for smoother integration
+        layout.setSpacing(8)  # Reduced spacing
 
+        # Left: icon + text
+        text_col = QVBoxLayout()
+        text_col.setAlignment(Qt.AlignCenter)
+        icon_label = QLabel(icon)
+        icon_label.setFont(QFont("Segoe UI Emoji", 10))
+        icon_label.setAlignment(Qt.AlignCenter)
+        icon_label.setStyleSheet("background: transparent;")
+        value_label = QLabel(str(value))
+        value_label.setFont(QFont("Roboto", 10, QFont.Bold))
+        value_label.setStyleSheet("color: #222; background: transparent;")
+        value_label.setAlignment(Qt.AlignCenter)
+        title_label = QLabel(title)
+        title_label.setFont(QFont("Roboto", 8, QFont.Bold))
+        title_label.setStyleSheet("color: #444; background: transparent;")
+        title_label.setAlignment(Qt.AlignCenter)
+        text_col.addWidget(icon_label)
+        text_col.addWidget(value_label)
+        text_col.addWidget(title_label)
+        text_col.addStretch(1)
+        layout.addLayout(text_col, 2)
+
+        # Right: sparkline
+        spark = self.create_sparkline(spark_data)
+        layout.addWidget(spark, 1)
+
+    def create_sparkline(self, data):
+        fig = Figure(figsize=(2, 0.8), dpi=60)
+        ax = fig.add_subplot(111)
+        ax.plot(data, color='#1976d2', linewidth=2)
+        ax.axis('off')
+        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        canvas = FigureCanvas(fig)
+        canvas.setFixedSize(90, 60)
+        return canvas
+
+    def create_sparkline(self, data):
+        fig = Figure(figsize=(2, 0.8), dpi=60)
+        ax = fig.add_subplot(111)
+        ax.plot(data, color='#1976d2', linewidth=2)
+        ax.axis('off')
+        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        canvas = FigureCanvas(fig)
+        canvas.setFixedSize(90, 60)
+        return canvas
+    
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -348,30 +386,21 @@ class DashboardWindow(QWidget):
 
     def init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setSpacing(24)
+        layout.setSpacing(0)
         layout.setContentsMargins(30, 30, 30, 30)
-        # Top bar
-        top_bar = QHBoxLayout()
-        user_icon = QLabel("👤")
-        user_icon.setFont(QFont("Segoe UI Emoji", 24))
-        user_label = QLabel("Welcome, Admin!")
-        user_label.setFont(QFont("Segoe UI", 22, QFont.Bold))
-        user_label.setStyleSheet("color: #23272e;")
-        top_bar.addWidget(user_icon)
-        top_bar.addWidget(user_label)
-        top_bar.addStretch()
-        layout.addLayout(top_bar)
-        # KPI cards
-        kpi_row = QHBoxLayout()
         kpis = [
-            ("Total Revenue", f"₪{self.kpi_data['total_revenue']:,.0f}", "💰", "#e0f7fa"),
-            ("Active Orders", str(self.kpi_data['active_orders']), "📦", "#f3e5f5"),
-            ("Customers", str(self.kpi_data['num_customers']), "👥", "#e8f5e9"),
-            ("Occupancy", f"{self.kpi_data['occupancy']}%", "🌱", "#fff3e0"),
+            ("Total Revenue", f"₪{self.kpi_data['total_revenue']:,.0f}", "💰", [100, 120, 90, 130, 150, 170, 160]),
+            ("Active Orders", str(self.kpi_data['active_orders']), "📦", [10, 12, 8, 15, 13, 14, 16]),
+            ("Customers", str(self.kpi_data['num_customers']), "👥", [200, 220, 210, 230, 250, 270, 260]),
+            ("Occupancy", f"{self.kpi_data['occupancy']}%", "🌱", [60, 65, 70, 68, 72, 75, 80])
         ]
-        for title, value, icon, color in kpis:
-            kpi_card = ModernKpiCard(title, value, icon, color)
+        kpi_row = QHBoxLayout()
+        kpi_row.setSpacing(32)
+        kpi_row.setContentsMargins(0, 30, 0, 30)
+        for title, value, icon, spark_data in kpis:
+            kpi_card = ModernKpiCard(title, value, icon, spark_data)
             kpi_row.addWidget(kpi_card)
+        kpi_row.setAlignment(Qt.AlignHCenter)
         layout.addLayout(kpi_row)
         # Charts section
         charts_row = QHBoxLayout()
@@ -467,7 +496,7 @@ class DashboardWindow(QWidget):
         table.setHorizontalHeaderLabels(["Order #", "Customer", "Amount", "Status"])
         table.verticalHeader().setVisible(False)
         table.setShowGrid(False)
-        table.setAlternatingRowColors(True)
+        table.setAlternatingRowColors(False)
         table.setStyleSheet("""
             QTableWidget {
                 background: #f7f7f7;
@@ -476,7 +505,6 @@ class DashboardWindow(QWidget):
                 font-size: 16px;
                 color: #222;
                 gridline-color: #f0f0f0;
-                alternate-background-color: #ececec;
             }
             QHeaderView::section {
                 background: #e0e0e0;
@@ -602,6 +630,7 @@ class ModernSidebar(QFrame):
             ("Farm Visual", "farm_visual", "🌾"),
             ("Analytics", "analytics", "📈"),
             ("User Management", "user_management", "👤"),
+            ("Live Simulation", "live_simulation", "🧪"),
             ("Settings", "settings", "⚙️")
         ]
 
@@ -706,6 +735,60 @@ class Main_gui(QMainWindow):
         title_label.setStyleSheet("color: #fff; font-size: 16px; font-weight: bold;")
         title_layout.addWidget(title_label)
         title_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        # --- Notification Bell Button ---
+        self.bell_btn = QToolButton()
+        self.bell_btn.setObjectName("notificationBell")
+        bell_icon_path = os.path.join(os.path.dirname(__file__), "bell_icon.png")
+        if os.path.exists(bell_icon_path):
+            self.bell_btn.setIcon(QIcon(bell_icon_path))
+        else:
+            self.bell_btn.setText("🔔")
+        self.bell_btn.setIconSize(QSize(24, 24))
+        self.bell_btn.setStyleSheet("""
+            QToolButton#notificationBell {
+                background: none;
+                border: none;
+                color: #fff;
+                font-size: 20px;
+                padding: 0 8px;
+            }
+            QToolButton#notificationBell:hover {
+                color: #f1c40f;
+            }
+        """)
+        self.bell_btn.setCursor(Qt.PointingHandCursor)
+        self.bell_btn.setPopupMode(QToolButton.InstantPopup)
+        self.bell_menu = QMenu(self)
+        self.bell_menu.setStyleSheet("""
+            QMenu {
+                background: #23272e;
+                color: #fff;
+                border-radius: 8px;
+                padding: 8px 0;
+                font-size: 15px;
+                min-width: 260px;
+            }
+            QMenu::item {
+                padding: 8px 18px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background: #353b48;
+                color: #f1c40f;
+            }
+        """)
+        self.bell_btn.setMenu(self.bell_menu)
+        self.bell_btn.clicked.connect(self.refresh_alerts_menu)
+        # Add bell button before minimize/max/close
+        title_layout.insertWidget(title_layout.count()-3, self.bell_btn)
+        # --- Red dot for new alerts ---
+        self.bell_red_dot = QLabel(self.bell_btn)
+        self.bell_red_dot.setFixedSize(12, 12)
+        self.bell_red_dot.move(20, 2)
+        self.bell_red_dot.setStyleSheet("background: #e74c3c; border-radius: 6px; border: 2px solid #23272e;")
+        self.bell_red_dot.hide()
+        self.refresh_alerts_menu()
+        # --- End Notification Bell ---
         # Minimize button
         btn_min = QPushButton("–")
         btn_min.setFixedSize(32, 28)
@@ -781,6 +864,7 @@ class Main_gui(QMainWindow):
             "farm_visual": self.show_farm_visual,
             "analytics": self.show_analytics,
             "user_management": self.show_user_management,
+            "live_simulation": self.show_live_simulation,
             "settings": self.show_settings
         }
 
@@ -819,6 +903,10 @@ class Main_gui(QMainWindow):
     def show_user_management(self):
         self.content_area.setCurrentWidget(self.user_management_page)
         self.update_page_title("User Management")
+
+    def show_live_simulation(self):
+        self.content_area.setCurrentWidget(self.live_simulation_page)
+        self.update_page_title("Live Simulation")
 
     def show_settings(self):
         self.content_area.setCurrentWidget(self.settings_page)
@@ -953,6 +1041,11 @@ class Main_gui(QMainWindow):
         self.init_user_management_page()
         self.content_area.addWidget(self.user_management_page)
 
+        # Live Simulation page
+        self.live_simulation_page = QWidget()
+        self.init_live_simulation_page()
+        self.content_area.addWidget(self.live_simulation_page)
+
         # Settings page
         self.settings_page = QWidget()
         self.init_settings_page()
@@ -1085,6 +1178,40 @@ class Main_gui(QMainWindow):
         analytics = AnalyticsApp()
         layout.addWidget(analytics)
 
+    def init_live_simulation_page(self):
+        layout = QVBoxLayout(self.live_simulation_page)
+        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setSpacing(20)
+        title = QLabel("Live Data Simulation")
+        title.setFont(QFont("Roboto", 18, QFont.Bold))
+        title.setAlignment(Qt.AlignHCenter)
+        layout.addWidget(title)
+        self.simulator = MushroomSimulator()
+        self.simulation_running = False
+        self.sim_btn = QPushButton("Start Simulation")
+        self.sim_btn.setFont(QFont("Roboto", 12, QFont.Bold))
+        self.sim_btn.setStyleSheet("padding: 12px 24px; border-radius: 8px; background: #43a047; color: white;")
+        self.sim_btn.clicked.connect(self.toggle_simulation)
+        layout.addWidget(self.sim_btn, alignment=Qt.AlignHCenter)
+        self.sim_status = QLabel("Simulation is stopped.")
+        self.sim_status.setFont(QFont("Roboto", 10))
+        self.sim_status.setAlignment(Qt.AlignHCenter)
+        layout.addWidget(self.sim_status)
+
+    def toggle_simulation(self):
+        if not self.simulation_running:
+            self.simulator.start_simulation()
+            self.simulation_running = True
+            self.sim_btn.setText("Stop Simulation")
+            self.sim_btn.setStyleSheet("padding: 12px 24px; border-radius: 8px; background: #e74c3c; color: white;")
+            self.sim_status.setText("Simulation is running...")
+        else:
+            self.simulator.stop_simulation()
+            self.simulation_running = False
+            self.sim_btn.setText("Start Simulation")
+            self.sim_btn.setStyleSheet("padding: 12px 24px; border-radius: 8px; background: #43a047; color: white;")
+            self.sim_status.setText("Simulation is stopped.")
+
     def init_settings_page(self):
         layout = QVBoxLayout(self.settings_page)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -1110,6 +1237,17 @@ class Main_gui(QMainWindow):
         from LoginGUI import LoginGUI
         login = LoginGUI()
         login.show()
+
+    def refresh_alerts_menu(self):
+        alerts = get_alerts_from_firebase()
+        self.bell_menu.clear()
+        if alerts:
+            for alert in alerts:
+                self.bell_menu.addAction(QIcon(), alert)
+            self.bell_red_dot.show()
+        else:
+            self.bell_menu.addAction("No alerts")
+            self.bell_red_dot.hide()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

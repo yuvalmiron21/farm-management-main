@@ -51,8 +51,7 @@ class MushroomSimulator(QObject):
     def stop_simulation(self):
         """Stop the live simulation"""
         self.running = False
-        if self.simulation_thread:
-            self.simulation_thread.join()
+        # Do not join here to avoid blocking UI; thread will exit soon
 
     def _simulation_loop(self):
         """Main simulation loop"""
@@ -61,10 +60,16 @@ class MushroomSimulator(QObject):
                 self._update_growing_beds()
                 self._update_batches()
                 self._create_logs()
-                time.sleep(60)  # Update every minute
+                for _ in range(60):  # Check every second for stop
+                    if not self.running:
+                        break
+                    time.sleep(1)
             except Exception as e:
                 print(f"Error in simulation loop: {str(e)}")
-                time.sleep(5)
+                for _ in range(5):
+                    if not self.running:
+                        break
+                    time.sleep(1)
 
     def _update_growing_beds(self):
         """Update growing beds status and conditions"""
