@@ -4,6 +4,7 @@ from firebase_admin import credentials, db, initialize_app
 from models import Customer  # Import your models here
 from models import Farm
 from models import Mushroom_type
+from db.cache_manager import CacheManager
 
 # Initialize Firebase
 SERVICE_ACCOUNT_FILE = "farm-management-FireBase_credentials.json"  # עדכון שם הקובץ
@@ -12,18 +13,17 @@ cred = credentials.Certificate(SERVICE_ACCOUNT_FILE)
 initialize_app(cred, {"databaseURL": DATABASE_URL})
 
 app = Flask(__name__)
+_cache_manager = CacheManager()
 
 # Helper functions
 def get_all_records(model_name):
-    ref = db.reference(model_name)
-    data = ref.get()
+    data = _cache_manager.get_data(model_name)
     if data:
         return [model.from_dict(value) for key, value in data.items()]
     return []
 
 def get_record_by_id(model_name, model_class, record_id):
-    ref = db.reference(model_name)
-    data = ref.get()
+    data = _cache_manager.get_data(model_name)
     if data:
         for key, value in data.items():
             obj = model_class.from_dict(value)
@@ -32,35 +32,31 @@ def get_record_by_id(model_name, model_class, record_id):
     return None
 
 def add_record(model_name, obj):
-    ref = db.reference(model_name)
-    ref.push(obj.to_dict())
+    _cache_manager.set_data(model_name, obj.to_dict())
 
 def update_record(model_name, record_id, model_class, updated_data):
-    ref = db.reference(model_name)
-    data = ref.get()
+    data = _cache_manager.get_data(model_name)
     if data:
         for key, value in data.items():
             obj = model_class.from_dict(value)
             if getattr(obj, "customer_id", None) == record_id or getattr(obj, "id", None) == record_id:
-                ref.child(key).update(updated_data)
+                _cache_manager.update_data(f'{model_name}/{key}', updated_data)
                 return True
     return False
 
 def delete_record(model_name, record_id, model_class):
-    ref = db.reference(model_name)
-    data = ref.get()
+    data = _cache_manager.get_data(model_name)
     if data:
         for key, value in data.items():
             obj = model_class.from_dict(value)
             if getattr(obj, "customer_id", None) == record_id or getattr(obj, "id", None) == record_id:
-                ref.child(key).delete()
+                _cache_manager.delete_data(f'{model_name}/{key}')
                 return True
     return False
 
 def upload_or_replace_table(table_name, json_data):
     """Uploads or replaces a table in the database with given JSON data."""
-    ref = db.reference(table_name)
-    ref.set(json_data)  # Replaces all data in the table
+    _cache_manager.set_data(table_name, json_data)
     return True
 
 def retrieve_table_as_json(table_name):
@@ -122,15 +118,17 @@ def api_retrieve_table_as_json(table_name):
     return retrieve_table_as_json(table_name)
 
 def get_all_data():
-    ref = db.reference('/')
-    data = ref.get()
+    # במקום לטעון את כל הדאטה, נטען רק את הטבלאות המרכזיות
+    tables = ['Customer', 'GrowingBed', 'Warehouse', 'Order', 'Batches', 'Logs', 'Harvests', 'Users']
+    data = {}
+    for table in tables:
+        data[table] = _cache_manager.get_data(table)
     return data
 
 def test_firebase_connection():
     """Test connection to Firebase and print all data."""
     try:
-        ref = db.reference('/')  # גישה לנתיב הראשי במסד הנתונים
-        data = ref.get()
+        data = get_all_data()
         print("Firebase connection successful.")
         print("Current database state:")
         print(data)

@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QRectF, QPointF, QSizeF, pyqtSignal, QPropertyAnimation, QEasingCurve, QTimer
 from PyQt5.QtGui import (
     QPainter, QBrush, QPen, QColor, QLinearGradient, QFont,
-    QPainterPath, QPolygonF, QRadialGradient, QPainterPath
+    QPainterPath, QPolygonF, QRadialGradient, QPainterPath, QFontDatabase
 )
 from firebase_admin import db
 from datetime import datetime
@@ -97,6 +97,28 @@ class GrowingBedItem(QGraphicsItem):
 
     def paint(self, painter, option, widget):
         painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.TextAntialiasing)
+        # Load Outfit font if available
+        font_dir = os.path.join(os.path.dirname(__file__), "fonts")
+        regular_path = os.path.join(font_dir, "Outfit-Regular.ttf")
+        variable_path = os.path.join(font_dir, "Outfit-VariableFont_wght.ttf")
+        font_family = None
+        if os.path.exists(regular_path):
+            font_id = QFontDatabase.addApplicationFont(regular_path)
+            if font_id != -1:
+                font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
+        elif os.path.exists(variable_path):
+            font_id = QFontDatabase.addApplicationFont(variable_path)
+            if font_id != -1:
+                font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
+        if font_family:
+            main_font = QFont(font_family, 12, QFont.Bold)
+            panel_title_font = QFont(font_family, 11, QFont.Bold)
+            panel_value_font = QFont(font_family, 10)
+        else:
+            main_font = QFont("Arial", 12, QFont.Bold)
+            panel_title_font = QFont("Arial", 11, QFont.Bold)
+            panel_value_font = QFont("Arial", 10)
         
         # Apply hover scale
         if self.hover or self.isSelected():
@@ -145,9 +167,7 @@ class GrowingBedItem(QGraphicsItem):
         painter.drawRoundedRect(0, 0, self.width, 40, 10, 10)
         
         # Draw bed ID and stage with improved text visibility
-        font = QFont("Arial", 11, QFont.Bold)
-        painter.setFont(font)
-        
+        painter.setFont(main_font)
         # Draw text shadow
         painter.setPen(QPen(QColor(0, 0, 0, 100)))
         painter.drawText(11, 26, f"Bed {self.bed_id}")
@@ -160,9 +180,9 @@ class GrowingBedItem(QGraphicsItem):
         
         # If bed is selected or hovered, show environmental data
         if self.hover or self.isSelected():
-            self.paint_data_panel(painter)
+            self.paint_data_panel(painter, panel_title_font, panel_value_font)
 
-    def paint_data_panel(self, painter):
+    def paint_data_panel(self, painter, title_font, value_font):
         panel_x = self.width + 10
         panel_y = 0
         panel_width = 220
@@ -185,9 +205,6 @@ class GrowingBedItem(QGraphicsItem):
         painter.drawRoundedRect(panel_x, panel_y, panel_width, panel_height, 8, 8)
         
         # Draw data with improved visibility
-        title_font = QFont("Arial", 10, QFont.Bold)
-        value_font = QFont("Arial", 9)
-        
         y_offset = 20
         line_height = 28
         
@@ -263,7 +280,9 @@ class ResizableRectItem(QGraphicsRectItem):
         painter.setBrush(QColor(67, 160, 71, 40))  # Semi-transparent green fill
         painter.drawRect(self.rect())
         if self.isSelected():
-            painter.setBrush(QColor("#43a047", 180))
+            color = QColor("#43a047")
+            color.setAlpha(180)
+            painter.setBrush(color)
             for handle, _ in self.handles:
                 painter.drawRect(handle)
 

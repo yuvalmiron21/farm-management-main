@@ -27,6 +27,7 @@ from ChatGUI import ChatGUI
 from user_management import UserManagement
 from UI.UserManagementGUI import UserManagementGUI
 from UI.live_simulation import MushroomSimulator
+from db.cache_manager import CacheManager
 
 # Initialize Firebase
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Current file location
@@ -111,6 +112,8 @@ TRANSLATIONS = {
     }
 }
 
+_cache_manager = CacheManager()
+
 def get_monthly_revenue():
     ref = db.reference('Order')
     orders = ref.get() or {}
@@ -130,8 +133,7 @@ def get_monthly_revenue():
     return months, revenue
 
 def get_bed_occupancy():
-    ref = db.reference('GrowingBed')
-    beds = ref.get() or {}
+    beds = _cache_manager.get_data('GrowingBed') or {}
     stages = ['Spawn Run', 'Pinning', 'Fruiting', 'Harvesting', 'Empty']
     stage_counts = {stage: 0 for stage in stages}
     for bed in beds.values():
@@ -144,8 +146,7 @@ def get_bed_occupancy():
 
 def get_kpi_data():
     # Orders
-    orders_ref = db.reference('Order')
-    orders = orders_ref.get() or {}
+    orders = _cache_manager.get_data('Order') or {}
     total_revenue = 0
     active_orders = 0
     active_statuses = {"Pending", "Processing", "Shipped"}
@@ -158,13 +159,11 @@ def get_kpi_data():
             continue
 
     # Customers
-    customers_ref = db.reference('Customer')
-    customers = customers_ref.get() or {}
+    customers = _cache_manager.get_data('Customer') or {}
     num_customers = len(customers) if isinstance(customers, dict) else 0
 
     # Beds
-    beds_ref = db.reference('GrowingBed')
-    beds = beds_ref.get() or {}
+    beds = _cache_manager.get_data('GrowingBed') or {}
     total_beds = len(beds)
     active_beds = sum(1 for bed in beds.values() if bed.get('CurrentGrowthStage', '') != 'Empty')
     occupancy = int((active_beds / total_beds) * 100) if total_beds > 0 else 0
@@ -177,8 +176,7 @@ def get_kpi_data():
     }
 
 def get_recent_orders(limit=10):
-    ref = db.reference('Order')
-    orders = ref.get() or {}
+    orders = _cache_manager.get_data('Order') or {}
     # Sort by date descending
     def parse_date(order):
         try:
@@ -187,8 +185,7 @@ def get_recent_orders(limit=10):
             return datetime.min
     sorted_orders = sorted(orders.values(), key=parse_date, reverse=True)
     # Get customer names if possible
-    customers_ref = db.reference('Customer')
-    customers = customers_ref.get() or {}
+    customers = _cache_manager.get_data('Customer') or {}
     def get_customer_name(cid):
         if not cid:
             return ""
@@ -223,10 +220,9 @@ def get_alerts_from_firebase():
     return alerts[:10]
 
 def get_logged_in_user():
-    ref = db.reference("Users")
-    users = ref.get() or {}
+    users = _cache_manager.get_data('Users') or {}
     for user in users.values():
-        if user.get("LoggedIn", False):
+        if user.get('LoggedIn', False):
             return user
     return None
 
@@ -702,25 +698,41 @@ class Main_gui(QMainWindow):
         self._old_pos = None
 
     def set_font(self):
-        # Try Outfit-Regular.ttf first, then Outfit-VariableFont_wght.ttf
-        font_dir = os.path.join(os.path.dirname(__file__), "fonts")
-        regular_path = os.path.join(font_dir, "Outfit-Regular.ttf")
-        variable_path = os.path.join(font_dir, "Outfit-VariableFont_wght.ttf")
+        # Load only the full variable font
+        font_path = os.path.join(PARENT_DIR, "UI", "fonts", "Outfit-VariableFont_wght.ttf")
         font_family = None
-        if os.path.exists(regular_path):
-            font_id = QFontDatabase.addApplicationFont(regular_path)
+        if os.path.exists(font_path):
+            font_id = QFontDatabase.addApplicationFont(font_path)
             if font_id != -1:
-                font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
-        elif os.path.exists(variable_path):
-            font_id = QFontDatabase.addApplicationFont(variable_path)
-            if font_id != -1:
-                font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
+                loaded_families = QFontDatabase.applicationFontFamilies(font_id)
+                print("Loaded font families:", loaded_families)
+                if loaded_families:
+                    font_family = loaded_families[0]
         if font_family:
-            font = QFont(font_family, 13)
-            font.setWeight(QFont.Bold)  # 700, Bold weight
-            QApplication.setFont(font)
+            # Set bold font as default
+            app_font = QFont(font_family, 11, QFont.Bold)
+            app_font.setStyleStrategy(QFont.PreferAntialias)
+            QApplication.setFont(app_font)
+            QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+            QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+            # Apply QSS for all widgets
+            QApplication.instance().setStyleSheet(f"""
+                * {{
+                    font-family: '{font_family}';
+                    font-size: 11pt;
+                    font-weight: 700;
+                }}
+                QLabel, QPushButton, QComboBox, QLineEdit, QTableWidget, QHeaderView::section, QTableWidget::item, QMenu, QToolButton {{
+                    font-family: '{font_family}';
+                    font-weight: 700;
+                }}
+            """)
         else:
             print("Failed to load Outfit font. Using default font.")
+            app_font = QFont()
+            app_font.setPointSize(11)
+            app_font.setWeight(QFont.Bold)
+            QApplication.setFont(app_font)
 
     def init_ui(self):
         self.setWindowTitle("Mushroom Farm Management System")

@@ -30,6 +30,9 @@ from prophet import Prophet
 import pandas as pd
 import io
 from user_management import UserManagement
+from db.cache_manager import CacheManager
+
+_cache_manager = CacheManager()
 
 class MetricCard(QFrame):
     def __init__(self, title, value, icon, color="#4CAF50", show_progress=False, progress_value=0):
@@ -873,9 +876,6 @@ All predictions below use Facebook Prophet (time series ML model) on your filter
     def update_dashboard_data(self):
         try:
             print("Starting dashboard data update...")
-            # Get reference to Firebase database
-            ref = db.reference('/')
-            print("Got database reference")
             
             # Get current date for monthly calculations
             now = datetime.now()
@@ -884,13 +884,9 @@ All predictions below use Facebook Prophet (time series ML model) on your filter
             
             # Fetch all necessary data
             print("Fetching data from Firebase...")
-            orders_ref = ref.child('Order')
-            beds_ref = ref.child('GrowingBed')
-            harvests_ref = ref.child('Harvests')
-            
-            orders_data = orders_ref.get() or {}
-            beds_data = beds_ref.get() or {}
-            harvests_data = harvests_ref.get() or {}
+            orders_data = _cache_manager.get_data('Order') or {}
+            beds_data = _cache_manager.get_data('GrowingBed') or {}
+            harvests_data = _cache_manager.get_data('Harvests') or {}
             
             print(f"Retrieved data: Orders: {type(orders_data)}, Beds: {type(beds_data)}, Harvests: {type(harvests_data)}")
             

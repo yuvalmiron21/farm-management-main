@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from firebase_admin import db, credentials, initialize_app
 import uuid
 import os
+from db.cache_manager import CacheManager
 
 # Initialize Firebase
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Current file location
@@ -19,6 +20,8 @@ if not os.path.exists(SERVICE_ACCOUNT_FILE):
 # Initialize Firebase
 cred = credentials.Certificate(SERVICE_ACCOUNT_FILE)
 initialize_app(cred, {"databaseURL": DATABASE_URL})
+
+_cache_manager = CacheManager()
 
 def get_real_names():
     first_names = [
@@ -237,18 +240,18 @@ def delete_all_tables():
         'Users'
     ]
     for table in tables:
-        db.reference(table).delete()
+        _cache_manager.delete_data(table)
     print("All relevant tables deleted from Firebase.")
 
 def delete_growing_beds():
-    db.reference('GrowingBed').delete()
+    _cache_manager.delete_data('GrowingBed')
     print("GrowingBed table deleted from Firebase.")
 
 def upload_growing_beds_only():
     try:
         delete_growing_beds()
         growing_beds = generate_growing_beds()
-        db.reference('GrowingBed').set(growing_beds)
+        _cache_manager.set_data('GrowingBed', growing_beds)
         print("Successfully uploaded 20 growing beds!")
         return True
     except Exception as e:
@@ -265,13 +268,15 @@ def upload_dummy_data():
         orders = generate_orders(customers, products)
         batches = generate_batches(growing_beds)
         logs = generate_logs(batches)
-        db.reference('Customer').set(customers)
-        db.reference('GrowingBed').set(growing_beds)
-        db.reference('Warehouse').set(warehouse_items)
-        db.reference('Products').set(products)
-        db.reference('Order').set(orders)
-        db.reference('Batches').set(batches)
-        db.reference('Logs').set(logs)
+        
+        _cache_manager.set_data('Customer', customers)
+        _cache_manager.set_data('GrowingBed', growing_beds)
+        _cache_manager.set_data('Warehouse', warehouse_items)
+        _cache_manager.set_data('Products', products)
+        _cache_manager.set_data('Order', orders)
+        _cache_manager.set_data('Batches', batches)
+        _cache_manager.set_data('Logs', logs)
+        
         print("Successfully uploaded all dummy data!")
         return True
     except Exception as e:
