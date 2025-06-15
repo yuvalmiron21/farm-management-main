@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QWidget,
                              QScrollArea, QSizePolicy, QGraphicsDropShadowEffect, QLineEdit,
                              QTableWidget, QTableWidgetItem, QHeaderView, QStyledItemDelegate,
                              QToolButton, QMenu, QAction, QDialog, QSpacerItem, QGridLayout)
-from PyQt5.QtGui import QFont, QIcon, QColor, QPalette, QBrush, QPen, QPixmap
+from PyQt5.QtGui import QFont, QIcon, QColor, QPalette, QBrush, QPen, QPixmap, QFontDatabase
 from PyQt5.QtCore import Qt, QSettings, QTranslator, QLocale, QTimer, QSize, QPoint
 from firebase_admin import db, credentials, initialize_app
 import firebase_admin
@@ -322,16 +322,6 @@ class ModernKpiCard(QFrame):
         canvas.setFixedSize(90, 60)
         return canvas
 
-    def create_sparkline(self, data):
-        fig = Figure(figsize=(2, 0.8), dpi=60)
-        ax = fig.add_subplot(111)
-        ax.plot(data, color='#1976d2', linewidth=2)
-        ax.axis('off')
-        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-        canvas = FigureCanvas(fig)
-        canvas.setFixedSize(90, 60)
-        return canvas
-    
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -502,22 +492,29 @@ class DashboardWindow(QWidget):
                 background: #f7f7f7;
                 border-radius: 14px;
                 border: 1px solid #e0e0e0;
-                font-size: 16px;
+                font-size: 13px;
                 color: #222;
                 gridline-color: #f0f0f0;
+                font-family: 'Outfit';
+                font-weight: 700;
             }
             QHeaderView::section {
                 background: #e0e0e0;
                 color: #222;
-                font-size: 17px;
+                font-size: 14px;
                 font-weight: bold;
                 border: none;
                 border-bottom: 2px solid #bdbdbd;
                 padding: 12px 0;
+                font-family: 'Outfit';
+                font-weight: 700;
             }
             QTableWidget::item {
                 padding: 10px;
                 border-bottom: 1px solid #e0e0e0;
+                font-size: 12px;
+                font-family: 'Outfit';
+                font-weight: 700;
             }
             QTableWidget::item:selected {
                 background: #d6e4f0;
@@ -549,6 +546,7 @@ class DashboardWindow(QWidget):
             "Pending Shipment": "#f39c12",
             "Processing": "#e67e22"
         }
+        font_family = QApplication.font().family()
         for row, order in enumerate(data):
             items = [
                 str(order['OrderID']),
@@ -559,6 +557,7 @@ class DashboardWindow(QWidget):
             for col, item_text in enumerate(items):
                 item = QTableWidgetItem(item_text)
                 item.setTextAlignment(Qt.AlignCenter)
+                item.setFont(QFont(font_family, 12, QFont.Bold))
                 if col == 3:  # Status badge
                     # No need to set background/foreground/font, delegate will handle
                     item.setFlags(item.flags() & ~Qt.ItemIsSelectable)
@@ -691,6 +690,10 @@ class Main_gui(QMainWindow):
         self.chat_gui = None
         self.setWindowFlags(Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, False)
+        
+        # Set default font for the entire application
+        self.set_font()
+        
         self.init_ui()
         self.setup_navigation()
         self.add_floating_chat_button()
@@ -698,15 +701,75 @@ class Main_gui(QMainWindow):
         self.showMaximized()
         self._old_pos = None
 
+    def set_font(self):
+        # Try Outfit-Regular.ttf first, then Outfit-VariableFont_wght.ttf
+        font_dir = os.path.join(os.path.dirname(__file__), "fonts")
+        regular_path = os.path.join(font_dir, "Outfit-Regular.ttf")
+        variable_path = os.path.join(font_dir, "Outfit-VariableFont_wght.ttf")
+        font_family = None
+        if os.path.exists(regular_path):
+            font_id = QFontDatabase.addApplicationFont(regular_path)
+            if font_id != -1:
+                font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
+        elif os.path.exists(variable_path):
+            font_id = QFontDatabase.addApplicationFont(variable_path)
+            if font_id != -1:
+                font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
+        if font_family:
+            font = QFont(font_family, 13)
+            font.setWeight(QFont.Bold)  # 700, Bold weight
+            QApplication.setFont(font)
+        else:
+            print("Failed to load Outfit font. Using default font.")
+
     def init_ui(self):
         self.setWindowTitle("Mushroom Farm Management System")
         self.setMinimumSize(1200, 800)
         self.setStyleSheet("""
             QMainWindow {
                 background: #f5f6fa;
+                font-family: 'Outfit';
+                font-weight: 700;
             }
             QLabel {
                 color: #2d3436;
+                font-family: 'Outfit';
+                font-weight: 700;
+            }
+            QPushButton {
+                font-family: 'Outfit';
+                font-weight: 700;
+            }
+            QComboBox {
+                font-family: 'Outfit';
+                font-weight: 700;
+            }
+            QLineEdit {
+                font-family: 'Outfit';
+                font-weight: 700;
+            }
+            QTableWidget {
+                font-family: 'Outfit';
+                font-weight: 700;
+                font-size: 13px;
+            }
+            QHeaderView::section {
+                font-family: 'Outfit';
+                font-weight: 700;
+                font-size: 14px;
+            }
+            QTableWidget::item {
+                font-family: 'Outfit';
+                font-weight: 700;
+                font-size: 12px;
+            }
+            QMenu {
+                font-family: 'Outfit';
+                font-weight: 700;
+            }
+            QToolButton {
+                font-family: 'Outfit';
+                font-weight: 700;
             }
         """)
         self.setup_navigation()
@@ -1251,7 +1314,7 @@ class Main_gui(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-
+    
     # Create Main Window
     main_window = Main_gui()
     main_window.show()

@@ -31,8 +31,8 @@ class LoginGUI(QWidget):
                 background: white;
                 border-radius: 20px;
                 padding: 32px 28px 28px 28px;
-                border: 1.5px solid #e0e0e0;
-                box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+                /* border: 1.5px solid #e0e0e0; */
+                /* box-shadow: 0 6px 20px rgba(0,0,0,0.12); */
             }
         """)
         panel_layout = QVBoxLayout(panel)
@@ -53,11 +53,6 @@ class LoginGUI(QWidget):
         logo.setAlignment(Qt.AlignCenter)
         logo_layout.addWidget(logo, alignment=Qt.AlignCenter)
         panel_layout.insertLayout(0, logo_layout)
-
-        subtitle = QLabel("Farm Management System")
-        subtitle.setFont(QFont("Segoe UI", 12))
-        subtitle.setStyleSheet("color: #888; margin-bottom: 8px;")
-        panel_layout.addWidget(subtitle)
 
         # Username field
         self.username_input = QLineEdit()
@@ -82,11 +77,25 @@ class LoginGUI(QWidget):
         panel_layout.addWidget(self.username_input)
 
         # Password field
+        pw_layout = QHBoxLayout()
         self.password_input = QLineEdit()
         self.password_input.setPlaceholderText("Password")
         self.password_input.setEchoMode(QLineEdit.Password)
         self.password_input.setStyleSheet(self.username_input.styleSheet())
-        panel_layout.addWidget(self.password_input)
+        pw_layout.addWidget(self.password_input)
+
+        # Eye toggle button
+        self.pw_eye_btn = QToolButton()
+        self.pw_eye_btn.setCheckable(True)
+        self.pw_eye_btn.setCursor(Qt.PointingHandCursor)
+        self.pw_eye_btn.setStyleSheet("border: none; padding: 0 6px;")
+        self.pw_eye_btn.setIconSize(QSize(20, 20))
+        self.pw_eye_btn.setToolTip("Show/Hide Password")
+        # Use unicode eye/eye-off icons for cross-platform
+        self.pw_eye_btn.setText("👁️")
+        self.pw_eye_btn.toggled.connect(self.toggle_password_visibility)
+        pw_layout.addWidget(self.pw_eye_btn)
+        panel_layout.addLayout(pw_layout)
 
         # Loading animation
         self.loading_label = QLabel()
@@ -183,6 +192,14 @@ class LoginGUI(QWidget):
             self.close()
         else:
             QMessageBox.warning(self, "Error", message)
+
+    def toggle_password_visibility(self, checked):
+        if checked:
+            self.password_input.setEchoMode(QLineEdit.Normal)
+            self.pw_eye_btn.setText("🙈")
+        else:
+            self.password_input.setEchoMode(QLineEdit.Password)
+            self.pw_eye_btn.setText("👁️")
 
 if __name__ == "__main__":
     import sys

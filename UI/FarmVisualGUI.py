@@ -2,7 +2,9 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
     QGraphicsView, QGraphicsScene, QGraphicsItem, QFrame, QToolTip,
     QSizePolicy, QSpacerItem, QScrollArea, QMenu, QInputDialog, QMessageBox,
-    QGraphicsDropShadowEffect, QGraphicsOpacityEffect
+    QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QDialog, QFormLayout,
+    QDialogButtonBox, QLineEdit, QComboBox, QGraphicsLineItem, QGraphicsTextItem,
+    QGraphicsRectItem
 )
 from PyQt5.QtCore import Qt, QRectF, QPointF, QSizeF, pyqtSignal, QPropertyAnimation, QEasingCurve, QTimer
 from PyQt5.QtGui import (
@@ -12,6 +14,8 @@ from PyQt5.QtGui import (
 from firebase_admin import db
 from datetime import datetime
 import random
+import json
+import os
 
 class MushroomBlock(QGraphicsItem):
     def __init__(self, parent=None):
@@ -227,11 +231,118 @@ class GrowingBedItem(QGraphicsItem):
         self.hover_scale = 1.0
         self.update()
 
+    def mouseDoubleClickEvent(self, event):
+        if self.scene() and hasattr(self.scene().parent(), 'edit_bed_dialog'):
+            self.scene().parent().edit_bed_dialog(self)
+        event.accept()
+
+class ResizableRectItem(QGraphicsRectItem):
+    def __init__(self, x, y, w, h):
+        super().__init__(x, y, w, h)
+        self.setFlags(QGraphicsRectItem.ItemIsMovable | QGraphicsRectItem.ItemIsSelectable)
+        self.setAcceptHoverEvents(True)
+        self.setData(0, "room_rect")
+        self.handle_size = 16  # Larger handles
+        self.handles = []  # [(rect, pos)]
+        self.update_handles()
+        self.resizing = False
+        self.resizing_handle = None
+        self.moving = False
+        self.last_mouse_pos = None
+
+    def update_handles(self):
+        self.handles = []
+        rect = self.rect()
+        # 4 corners
+        for px, py in [(rect.left(), rect.top()), (rect.right(), rect.top()), (rect.right(), rect.bottom()), (rect.left(), rect.bottom())]:
+            self.handles.append((QRectF(px - self.handle_size/2, py - self.handle_size/2, self.handle_size, self.handle_size), (px, py)))
+
+    def paint(self, painter, option, widget):
+        # Thicker border
+        painter.setPen(QPen(QColor("#43a047"), 5 if self.isSelected() else 3, Qt.SolidLine))
+        painter.setBrush(QColor(67, 160, 71, 40))  # Semi-transparent green fill
+        painter.drawRect(self.rect())
+        if self.isSelected():
+            painter.setBrush(QColor("#43a047", 180))
+            for handle, _ in self.handles:
+                painter.drawRect(handle)
+
+    def hoverMoveEvent(self, event):
+        for idx, (handle, (hx, hy)) in enumerate(self.handles):
+            if handle.contains(event.pos()):
+                self.setCursor(Qt.SizeFDiagCursor)
+                return
+        self.setCursor(Qt.OpenHandCursor)
+
+    def mousePressEvent(self, event):
+        for idx, (handle, (hx, hy)) in enumerate(self.handles):
+            if handle.contains(event.pos()):
+                self.resizing = True
+                self.resizing_handle = idx
+                self.setCursor(Qt.SizeFDiagCursor)
+                return
+        if self.rect().contains(event.pos()):
+            self.moving = True
+            self.last_mouse_pos = event.scenePos()
+            self.setCursor(Qt.ClosedHandCursor)
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self.resizing and self.resizing_handle is not None:
+            rect = self.rect()
+            pos = event.pos()
+            # Keep minimum size
+            min_size = 20
+            if self.resizing_handle == 0:  # top-left
+                new_x = min(pos.x(), rect.right() - min_size)
+                new_y = min(pos.y(), rect.bottom() - min_size)
+                new_rect = QRectF(new_x, new_y, rect.right()-new_x, rect.bottom()-new_y)
+            elif self.resizing_handle == 1:  # top-right
+                new_x = max(pos.x(), rect.left() + min_size)
+                new_y = min(pos.y(), rect.bottom() - min_size)
+                new_rect = QRectF(rect.left(), new_y, new_x-rect.left(), rect.bottom()-new_y)
+            elif self.resizing_handle == 2:  # bottom-right
+                new_x = max(pos.x(), rect.left() + min_size)
+                new_y = max(pos.y(), rect.top() + min_size)
+                new_rect = QRectF(rect.left(), rect.top(), new_x-rect.left(), new_y-rect.top())
+            elif self.resizing_handle == 3:  # bottom-left
+                new_x = min(pos.x(), rect.right() - min_size)
+                new_y = max(pos.y(), rect.top() + min_size)
+                new_rect = QRectF(new_x, rect.top(), rect.right()-new_x, new_y-rect.top())
+            if new_rect.width() >= min_size and new_rect.height() >= min_size:
+                self.setRect(new_rect)
+                self.update_handles()
+        elif self.moving and self.last_mouse_pos is not None:
+            delta = event.scenePos() - self.last_mouse_pos
+            self.moveBy(delta.x(), delta.y())
+            self.last_mouse_pos = event.scenePos()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self.resizing = False
+        self.resizing_handle = None
+        if self.moving:
+            self.moving = False
+            self.last_mouse_pos = None
+        self.setCursor(Qt.OpenHandCursor)
+        super().mouseReleaseEvent(event)
+
 class FarmVisualGUI(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Mushroom Farm Visual Management")
         self.setGeometry(100, 100, 1200, 800)
+        self.room_lines = []  # [(x1, y1, x2, y2)]
+        self.room_texts = []  # [(x, y, text)]
+        self.room_rects = []  # [(x, y, w, h)]
+        self.adding_line = False
+        self.adding_text = False
+        self.line_start = None
+        self.rect_start = None
+        self.room_design_file = os.path.join(os.path.dirname(__file__), "room_design.json")
+        self.adding_rect = False
         
         # Main layout
         self.layout = QVBoxLayout()
@@ -313,6 +424,30 @@ class FarmVisualGUI(QWidget):
         zoom_out_btn.clicked.connect(self.zoom_out)
         toolbar.addWidget(zoom_out_btn)
         
+        self.add_rect_btn = QPushButton("⬛ Add Rectangle")
+        self.add_rect_btn.setStyleSheet(button_style.replace("#2ecc71", "#ff9800"))
+        self.add_rect_btn.setCursor(Qt.PointingHandCursor)
+        self.add_rect_btn.clicked.connect(self.start_adding_rect)
+        toolbar.addWidget(self.add_rect_btn)
+        
+        self.add_text_btn = QPushButton("📝 Add Text")
+        self.add_text_btn.setStyleSheet(button_style.replace("#2ecc71", "#1976d2"))
+        self.add_text_btn.setCursor(Qt.PointingHandCursor)
+        self.add_text_btn.clicked.connect(self.start_adding_text)
+        toolbar.addWidget(self.add_text_btn)
+        
+        self.save_design_btn = QPushButton("💾 Save Design")
+        self.save_design_btn.setStyleSheet(button_style.replace("#2ecc71", "#43a047"))
+        self.save_design_btn.setCursor(Qt.PointingHandCursor)
+        self.save_design_btn.clicked.connect(self.save_room_design)
+        toolbar.addWidget(self.save_design_btn)
+        
+        self.clear_btn = QPushButton("🗑️ Clear All")
+        self.clear_btn.setStyleSheet(button_style.replace("#2ecc71", "#e74c3c"))
+        self.clear_btn.setCursor(Qt.PointingHandCursor)
+        self.clear_btn.clicked.connect(self.clear_room_design)
+        toolbar.addWidget(self.clear_btn)
+        
         toolbar.addStretch()
         
         refresh_btn = QPushButton("🔄 Refresh")
@@ -332,7 +467,7 @@ class FarmVisualGUI(QWidget):
         self.layout.addLayout(toolbar)
         
         # Farm view with enhanced styling
-        self.scene = QGraphicsScene()
+        self.scene = QGraphicsScene(parent=self)
         self.view = QGraphicsView(self.scene)
         self.view.setRenderHint(QPainter.Antialiasing)
         self.view.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
@@ -368,6 +503,9 @@ class FarmVisualGUI(QWidget):
         
         # Initialize zoom factor
         self.zoom_factor = 1.0
+        
+        self.view.mousePressEvent = self.mousePressEvent_override
+        self.load_room_design()
 
     def load_farm_data(self):
         """Load growing beds from the database"""
@@ -447,4 +585,157 @@ class FarmVisualGUI(QWidget):
         if event.angleDelta().y() > 0:
             self.zoom_in()
         else:
-            self.zoom_out() 
+            self.zoom_out()
+
+    def edit_bed_dialog(self, bed_item):
+        bed_data = bed_item.bed_data
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Edit Bed {bed_item.bed_id}")
+        layout = QFormLayout(dialog)
+
+        temp_edit = QLineEdit(str(bed_data.get('Temperature', '')))
+        humidity_edit = QLineEdit(str(bed_data.get('Humidity', '')))
+        co2_edit = QLineEdit(str(bed_data.get('CO2Level', '')))
+        stage_combo = QComboBox()
+        stages = ["Empty", "Spawn Run", "Pinning", "Fruiting", "Harvesting"]
+        stage_combo.addItems(stages)
+        stage_combo.setCurrentText(bed_data.get('CurrentGrowthStage', 'Empty'))
+
+        layout.addRow("Temperature (°C):", temp_edit)
+        layout.addRow("Humidity (%):", humidity_edit)
+        layout.addRow("CO2 Level (ppm):", co2_edit)
+        layout.addRow("Growth Stage:", stage_combo)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        layout.addWidget(buttons)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+
+        if dialog.exec_() == QDialog.Accepted:
+            # Update in Firebase
+            ref = db.reference('GrowingBed').child(bed_item.bed_id)
+            ref.update({
+                "Temperature": float(temp_edit.text()),
+                "Humidity": float(humidity_edit.text()),
+                "CO2Level": float(co2_edit.text()),
+                "CurrentGrowthStage": stage_combo.currentText(),
+                "LastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            })
+            # Update local
+            bed_item.bed_data["Temperature"] = float(temp_edit.text())
+            bed_item.bed_data["Humidity"] = float(humidity_edit.text())
+            bed_item.bed_data["CO2Level"] = float(co2_edit.text())
+            bed_item.bed_data["CurrentGrowthStage"] = stage_combo.currentText()
+            bed_item.bed_data["LastUpdated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            bed_item.environmental_data = {
+                'temperature': bed_item.bed_data["Temperature"],
+                'humidity': bed_item.bed_data["Humidity"],
+                'co2': bed_item.bed_data["CO2Level"],
+                'stage': bed_item.bed_data["CurrentGrowthStage"],
+                'last_updated': bed_item.bed_data["LastUpdated"],
+                'farm_id': bed_item.bed_data.get('FarmID', 'N/A')
+            }
+            bed_item.update()
+
+    def start_adding_rect(self):
+        self.adding_rect = True
+        self.adding_line = False
+        self.adding_text = False
+        self.rect_start = None
+        QMessageBox.information(self, "Add Rectangle", "Click two corners to create a rectangle.")
+
+    def start_adding_text(self):
+        self.adding_text = True
+        self.adding_line = False
+        QMessageBox.information(self, "Add Room Text", "Click where you want to place the text label.")
+
+    def mousePressEvent_override(self, event):
+        pos = self.view.mapToScene(event.pos())
+        if event.button() == Qt.RightButton:
+            item = self.scene.itemAt(pos, self.view.transform())
+            if item and hasattr(item, 'data') and item.data(0) == "room_rect":
+                menu = QMenu()
+                delete_action = menu.addAction("Delete")
+                action = menu.exec_(self.view.mapToGlobal(event.pos()))
+                if action == delete_action:
+                    self.scene.removeItem(item)
+                    self.remove_room_item(item)
+                    self.save_room_design()
+                return
+        if self.adding_rect:
+            if self.rect_start is None:
+                self.rect_start = pos
+            else:
+                x1, y1 = self.rect_start.x(), self.rect_start.y()
+                x2, y2 = pos.x(), pos.y()
+                rect = QRectF(min(x1, x2), min(y1, y2), abs(x2-x1), abs(y2-y1))
+                rect_item = ResizableRectItem(rect.x(), rect.y(), rect.width(), rect.height())
+                self.scene.addItem(rect_item)
+                self.room_rects.append((rect.x(), rect.y(), rect.width(), rect.height()))
+                self.adding_rect = False
+                self.rect_start = None
+                self.save_room_design()
+        elif self.adding_text:
+            text, ok = QInputDialog.getText(self, "Add Text", "Enter text:")
+            if ok and text:
+                text_item = QGraphicsTextItem(text)
+                text_item.setPos(pos.x(), pos.y())
+                text_item.setFlags(QGraphicsTextItem.ItemIsMovable | QGraphicsTextItem.ItemIsSelectable)
+                text_item.setAcceptHoverEvents(True)
+                text_item.setData(0, "room_text")
+                self.scene.addItem(text_item)
+                self.room_texts.append((pos.x(), pos.y(), text))
+                self.save_room_design()
+            self.adding_text = False
+        else:
+            QGraphicsView.mousePressEvent(self.view, event)
+
+    def remove_room_item(self, item):
+        if hasattr(item, 'data') and item.data(0) == "room_rect":
+            x, y, w, h = item.rect().x(), item.rect().y(), item.rect().width(), item.rect().height()
+            self.room_rects = [r for r in self.room_rects if not (abs(r[0]-x)<2 and abs(r[1]-y)<2 and abs(r[2]-w)<2 and abs(r[3]-h)<2)]
+        elif hasattr(item, 'data') and item.data(0) == "room_text":
+            x, y = item.pos().x(), item.pos().y()
+            text = item.toPlainText()
+            self.room_texts = [t for t in self.room_texts if not (abs(t[0]-x)<2 and abs(t[1]-y)<2 and t[2]==text)]
+
+    def save_room_design(self):
+        rects = []
+        texts = []
+        for item in self.scene.items():
+            if isinstance(item, ResizableRectItem) and item.data(0) == "room_rect":
+                r = item.rect()
+                rects.append((r.x(), r.y(), r.width(), r.height()))
+            elif isinstance(item, QGraphicsTextItem) and item.data(0) == "room_text":
+                texts.append((item.pos().x(), item.pos().y(), item.toPlainText()))
+        data = {"rects": rects, "texts": texts}
+        with open(self.room_design_file, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+
+    def load_room_design(self):
+        if os.path.exists(self.room_design_file):
+            with open(self.room_design_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            self.room_rects = data.get("rects", [])
+            self.room_texts = data.get("texts", [])
+            for x, y, w, h in self.room_rects:
+                rect_item = ResizableRectItem(x, y, w, h)
+                self.scene.addItem(rect_item)
+            for x, y, text in self.room_texts:
+                text_item = QGraphicsTextItem(text)
+                text_item.setPos(x, y)
+                text_item.setFlags(QGraphicsTextItem.ItemIsMovable | QGraphicsTextItem.ItemIsSelectable)
+                text_item.setAcceptHoverEvents(True)
+                text_item.setData(0, "room_text")
+                self.scene.addItem(text_item)
+
+    def clear_room_design(self):
+        # Remove all rectangles and texts from the scene
+        for item in list(self.scene.items()):
+            if (hasattr(item, 'data') and item.data(0) in ["room_rect", "room_text"]):
+                self.scene.removeItem(item)
+        self.room_rects = []
+        self.room_texts = []
+        # Remove from file
+        if os.path.exists(self.room_design_file):
+            os.remove(self.room_design_file) 

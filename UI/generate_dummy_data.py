@@ -1,7 +1,6 @@
 import random
 from datetime import datetime, timedelta
 from firebase_admin import db, credentials, initialize_app
-import names
 import uuid
 import os
 
@@ -51,12 +50,12 @@ def generate_customers():
     return customers
 
 def generate_growing_beds():
-    num_beds = random.randint(300, 800)
+    num_beds = 20  # Always generate 20 beds
     beds = {}
     stages = ["Empty", "Spawn Run", "Pinning", "Fruiting", "Harvesting"]
     mushroom_types = ["Portobello", "Shiitake", "Oyster", "Button", "Lion's Mane"]
     for i in range(num_beds):
-        bed_id = str(uuid.uuid4())
+        bed_id = f"BED{i+1:03d}"  # Short, simple bed id like BED001
         current_stage = random.choice(stages)
         start_date = datetime.now() - timedelta(days=random.randint(1, 5*365))
         beds[bed_id] = {
@@ -241,6 +240,21 @@ def delete_all_tables():
         db.reference(table).delete()
     print("All relevant tables deleted from Firebase.")
 
+def delete_growing_beds():
+    db.reference('GrowingBed').delete()
+    print("GrowingBed table deleted from Firebase.")
+
+def upload_growing_beds_only():
+    try:
+        delete_growing_beds()
+        growing_beds = generate_growing_beds()
+        db.reference('GrowingBed').set(growing_beds)
+        print("Successfully uploaded 20 growing beds!")
+        return True
+    except Exception as e:
+        print(f"Error uploading growing beds: {str(e)}")
+        return False
+
 def upload_dummy_data():
     try:
         delete_all_tables()
@@ -265,4 +279,4 @@ def upload_dummy_data():
         return False
 
 if __name__ == "__main__":
-    upload_dummy_data() 
+    upload_growing_beds_only() 
