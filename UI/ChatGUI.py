@@ -8,6 +8,11 @@ import os
 from dotenv import load_dotenv
 from firebase_admin import db
 from PyQt5.QtWidgets import QApplication
+import logging
+import time
+import random
+from requests.exceptions import ConnectionError, Timeout
+from UI.retry_utils import retry_with_backoff
 
 load_dotenv()
 
@@ -220,6 +225,7 @@ class ChatGUI(QWidget):
             self.chat_area.verticalScrollBar().maximum()
         )
 
+    @retry_with_backoff
     def get_farm_context(self):
         try:
             farm_data = db.reference('/').get()

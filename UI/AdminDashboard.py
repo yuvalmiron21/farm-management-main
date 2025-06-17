@@ -31,6 +31,7 @@ import pandas as pd
 import io
 from user_management import UserManagement
 from db.cache_manager import CacheManager
+import numpy as np
 
 _cache_manager = CacheManager()
 
@@ -211,6 +212,9 @@ class AdminDashboard(QWidget):
                 margin: 10px 0;
                 border: 1px solid #e0e0e0;
             }
+            QComboBox, QLabel, QDateEdit {
+                font-size: 11px;
+            }
             QComboBox {
                 border: 1px solid #e0e0e0;
                 border-radius: 6px;
@@ -232,13 +236,14 @@ class AdminDashboard(QWidget):
             }
             QLabel {
                 color: #666;
-                font-size: 13px;
+                font-size: 11px;
             }
             QDateEdit {
                 border: 1px solid #e0e0e0;
                 border-radius: 6px;
                 padding: 5px 10px;
                 background: white;
+                font-size: 11px;
             }
             QDateEdit:hover {
                 border-color: #2196F3;
@@ -501,6 +506,7 @@ All predictions below use Facebook Prophet (time series ML model) on your filter
         # 1. Order Forecast
         order_text = "Not enough data"
         order_spark = None
+        order_fallback_msg = ""
         if not df_filtered.empty:
             if model == 'Prophet':
                 order_ml = prophet_forecast(df_filtered, periods=1, freq='W')
@@ -510,9 +516,18 @@ All predictions below use Facebook Prophet (time series ML model) on your filter
             if order_ml is not None:
                 if model == 'Prophet':
                     row = order_ml.iloc[-1]
-                    order_text = f"₪{row['yhat']:.0f} (range: ₪{row['yhat_lower']:.0f} - ₪{row['yhat_upper']:.0f})"
+                    if row['yhat'] < 0:
+                        order_text = "0 (model predicted negative value, fallback to 0)"
+                        order_fallback_msg = "Model predicted a negative value. This usually means there is no recent data or a sharp decline. Fallback to 0."
+                    else:
+                        order_text = f"₪{row['yhat']:.0f} (range: ₪{row['yhat_lower']:.0f} - ₪{row['yhat_upper']:.0f})"
                 else:
-                    order_text = f"₪{order_ml.iloc[-1]:,.0f} (ARIMA)"
+                    val = order_ml.iloc[-1]
+                    if val < 0:
+                        order_text = "0 (model predicted negative value, fallback to 0)"
+                        order_fallback_msg = "Model predicted a negative value. This usually means there is no recent data or a sharp decline. Fallback to 0."
+                    else:
+                        order_text = f"₪{val:,.0f} (ARIMA)"
             else:
                 # fallback: Linear Regression
                 try:
@@ -527,30 +542,47 @@ All predictions below use Facebook Prophet (time series ML model) on your filter
                         next_week = [[df_lr['date_ordinal'].max() + 7]]
                         pred = model_lr.predict(next_week)[0]
                         order_text = f"₪{pred:.0f} (LR)"
-                    else:
-                        # fallback: ממוצע
+                        order_fallback_msg = "Fallback: Linear Regression used due to limited data."
+                    elif len(X) > 0:
                         avg = df_lr['amount'].mean()
                         order_text = f"₪{avg:.0f} (avg)"
+                        order_fallback_msg = "Fallback: Average of available data used due to insufficient data for ML."
+                    else:
+                        order_text = "No data available"
+                        order_fallback_msg = "No data available for prediction."
                 except Exception as e:
-                    print(f"Order fallback error: {e}")
-                    order_text = "Not enough data"
+                    order_text = "No data available"
+                    order_fallback_msg = f"Error in fallback: {e}"
             # sparkline - מגמת הזמנות שבועית
             try:
                 weekly = df_filtered.set_index('date').resample('W').sum()
                 order_spark = create_sparkline(weekly['amount'], color='#2196F3', tooltip_fmt='Week: {label}\nAmount: ₪{value:,.0f}', index_to_label=[str(d.date()) for d in weekly.index])
             except Exception as e:
-                print(f"Order sparkline error: {e}")
                 order_spark = None
+        else:
+            # Fallback: ממוצע אחרון
+            if 'amount' in df.columns and len(df['amount'].dropna()) > 0:
+                avg = df['amount'].dropna().mean()
+                order_text = f"₪{avg:.0f} (avg, low confidence)"
+                order_fallback_msg = "Fallback: Average of all available data used due to insufficient data."
+            else:
+                order_text = "No data available"
+                order_fallback_msg = "No data available for prediction."
+
         # 2. Revenue Forecast
         revenue_text = "Not enough data"
         revenue_spark = None
+        revenue_fallback_msg = ""
         if not df_filtered.empty:
             revenue_ml = prophet_revenue_forecast(df_filtered, periods=1, freq='W')
             if revenue_ml is not None:
                 row = revenue_ml.iloc[-1]
-                revenue_text = f"₪{row['yhat']:.0f} (range: ₪{row['yhat_lower']:.0f} - ₪{row['yhat_upper']:.0f})"
+                if row['yhat'] < 0:
+                    revenue_text = "0 (model predicted negative value, fallback to 0)"
+                    revenue_fallback_msg = "Model predicted a negative value. This usually means there is no recent data or a sharp decline. Fallback to 0."
+                else:
+                    revenue_text = f"₪{row['yhat']:.0f} (range: ₪{row['yhat_lower']:.0f} - ₪{row['yhat_upper']:.0f})"
             else:
-                # fallback: Linear Regression
                 try:
                     from sklearn.linear_model import LinearRegression
                     df_lr = df_filtered.copy()
@@ -563,89 +595,73 @@ All predictions below use Facebook Prophet (time series ML model) on your filter
                         next_week = [[df_lr['date_ordinal'].max() + 7]]
                         pred = model_lr.predict(next_week)[0]
                         revenue_text = f"₪{pred:.0f} (LR)"
-                    else:
+                        revenue_fallback_msg = "Fallback: Linear Regression used due to limited data."
+                    elif len(X) > 0:
                         avg = df_lr['amount'].mean()
                         revenue_text = f"₪{avg:.0f} (avg)"
+                        revenue_fallback_msg = "Fallback: Average of available data used due to insufficient data for ML."
+                    else:
+                        revenue_text = "No data available"
+                        revenue_fallback_msg = "No data available for prediction."
                 except Exception as e:
-                    print(f"Revenue fallback error: {e}")
-                    revenue_text = "Not enough data"
-            # sparkline - מגמת הכנסות שבועית
+                    revenue_text = "No data available"
+                    revenue_fallback_msg = f"Error in fallback: {e}"
             try:
                 weekly = df_filtered.set_index('date').resample('W').sum()
                 revenue_spark = create_sparkline(weekly['amount'], color='#4CAF50', tooltip_fmt='Week: {label}\nAmount: ₪{value:,.0f}', index_to_label=[str(d.date()) for d in weekly.index])
             except Exception as e:
-                print(f"Revenue sparkline error: {e}")
                 revenue_spark = None
-        # 3. Profit Forecast
-        profit_text = "Not enough data"
-        profit_spark = None
-        if 'profit' in df_filtered.columns and not df_filtered.empty:
-            print(f"[DEBUG] profit column exists, count of non-NA: {df_filtered['profit'].notna().sum()}")
-            print(f"[DEBUG] profit values: {df_filtered['profit'].describe()}")
-            profit_ml = None
+        else:
+            if 'amount' in df.columns and len(df['amount'].dropna()) > 0:
+                avg = df['amount'].dropna().mean()
+                revenue_text = f"₪{avg:.0f} (avg, low confidence)"
+                revenue_fallback_msg = "Fallback: Average of all available data used due to insufficient data."
+            else:
+                revenue_text = "No data available"
+                revenue_fallback_msg = "No data available for prediction."
+
+        # 3. Total Number of Orders Forecast (instead of Profit)
+        orders_count_text = "Not enough data"
+        orders_count_spark = None
+        orders_count_fallback_msg = ""
+        if not df_filtered.empty and 'date' in df_filtered.columns:
+            weekly_orders = df_filtered.set_index('date').resample('W').size().reset_index(name='orders_count')
+            orders_count_ml = prophet_forecast(weekly_orders.rename(columns={'orders_count': 'amount'}), periods=1, freq='W')
+            if orders_count_ml is not None:
+                row = orders_count_ml.iloc[-1]
+                if row['yhat'] < 0:
+                    orders_count_text = "0 (model predicted negative value, fallback to 0)"
+                    orders_count_fallback_msg = "Model predicted a negative value. This usually means there is no recent data or a sharp decline. Fallback to 0."
+                else:
+                    orders_count_text = f"{row['yhat']:.0f} (range: {row['yhat_lower']:.0f} - {row['yhat_upper']:.0f})"
+            else:
+                # fallback: ממוצע
+                avg = weekly_orders['orders_count'].mean() if not weekly_orders.empty else 0
+                orders_count_text = f"{avg:.0f} (avg, low confidence)"
+                orders_count_fallback_msg = "Fallback: Average of weekly order counts used due to insufficient data."
+            # sparkline - מגמת כמות הזמנות שבועית
             try:
-                profit_ml = prophet_profit_forecast(df_filtered, periods=1, freq='W')
-                print(f"[DEBUG] prophet_profit_forecast result: {profit_ml}")
+                orders_count_spark = create_sparkline(weekly_orders['orders_count'], color='#FF9800', tooltip_fmt='Week: {label}\nOrders: {value}', index_to_label=[str(d.date()) for d in weekly_orders['date']])
             except Exception as e:
-                print(f"[DEBUG] prophet_profit_forecast error: {e}")
-            if profit_ml is not None:
-                try:
-                    row = profit_ml.iloc[-1]
-                    if pd.notna(row['yhat']):
-                        profit_text = f"₪{row['yhat']:.0f} (range: ₪{row['yhat_lower']:.0f} - ₪{row['yhat_upper']:.0f})"
-                    else:
-                        raise ValueError('Prophet returned NaN')
-                except Exception as e:
-                    print(f"[DEBUG] Prophet result invalid: {e}")
-                    profit_ml = None
-            if profit_ml is None:
-                # fallback: Linear Regression
-                try:
-                    from sklearn.linear_model import LinearRegression
-                    df_lr = df_filtered.copy()
-                    df_lr = df_lr.dropna(subset=['date', 'profit'])
-                    df_lr['date_ordinal'] = df_lr['date'].map(lambda x: x.toordinal())
-                    X = df_lr['date_ordinal'].values.reshape(-1, 1)
-                    y = df_lr['profit'].values
-                    if len(X) > 2:
-                        model_lr = LinearRegression().fit(X, y)
-                        next_week = [[df_lr['date_ordinal'].max() + 7]]
-                        pred = model_lr.predict(next_week)[0]
-                        profit_text = f"₪{pred:.0f} (LR)"
-                    else:
-                        # fallback: ממוצע שבועי
-                        try:
-                            df_week = df_filtered.copy()
-                            df_week['week'] = df_week['date'].dt.to_period('W').apply(lambda r: r.start_time)
-                            weekly = df_week.groupby('week')['profit'].sum().reset_index()
-                            if not weekly.empty:
-                                avg = weekly['profit'].mean()
-                                profit_text = f"₪{avg:.0f} (weekly avg)"
-                            else:
-                                profit_text = "Not enough data for profit forecast"
-                        except Exception as e:
-                            print(f"[DEBUG] Weekly avg fallback error: {e}")
-                            profit_text = "Not enough data for profit forecast"
-                except Exception as e:
-                    print(f"Profit fallback error: {e}")
-                    profit_text = "Not enough data for profit forecast"
-            # sparkline - מגמת רווח שבועית
-            try:
-                weekly = df_filtered.set_index('date').resample('W').sum()
-                profit_spark = create_sparkline(weekly['profit'], color='#FF9800', tooltip_fmt='Week: {label}\nAmount: ₪{value:,.0f}', index_to_label=[str(d.date()) for d in weekly.index])
-            except Exception as e:
-                print(f"Profit sparkline error: {e}")
-                profit_spark = None
+                orders_count_spark = None
+        else:
+            orders_count_text = "No data available"
+            orders_count_fallback_msg = "No data available for prediction."
+
         # 4. Returning Customers Forecast
         returning_text = "Not enough data"
         returning_spark = None
+        returning_fallback_msg = ""
         if 'customer_id' in df_filtered.columns and not df_filtered.empty:
             returning_ml = prophet_returning_customers_forecast(df_filtered, periods=1, freq='W')
             if returning_ml is not None:
                 row = returning_ml.iloc[-1]
-                returning_text = f"{row['yhat']:.0f} (range: {row['yhat_lower']:.0f} - {row['yhat_upper']:.0f})"
+                if row['yhat'] < 0:
+                    returning_text = "0 (model predicted negative value, fallback to 0)"
+                    returning_fallback_msg = "Model predicted a negative value. This usually means there is no recent data or a sharp decline. Fallback to 0."
+                else:
+                    returning_text = f"{row['yhat']:.0f} (range: {row['yhat_lower']:.0f} - {row['yhat_upper']:.0f})"
             else:
-                # fallback: ממוצע שבועי
                 try:
                     df_ret = df_filtered.copy()
                     df_ret['week'] = df_ret['date'].dt.to_period('W').apply(lambda r: r.start_time)
@@ -653,29 +669,39 @@ All predictions below use Facebook Prophet (time series ML model) on your filter
                     if not weekly.empty:
                         avg = weekly['customer_id'].mean()
                         returning_text = f"{avg:.0f} (avg)"
+                        returning_fallback_msg = "Fallback: Average of weekly returning customers used due to insufficient data for ML."
+                    else:
+                        returning_text = "No data available"
+                        returning_fallback_msg = "No data available for prediction."
                 except Exception as e:
-                    print(f"Returning fallback error: {e}")
-                    returning_text = "Not enough data"
-            # sparkline - מגמת לקוחות חוזרים
+                    returning_text = "No data available"
+                    returning_fallback_msg = f"Error in fallback: {e}"
             try:
                 df_ret = df_filtered.copy()
                 df_ret['week'] = df_ret['date'].dt.to_period('W').apply(lambda r: r.start_time)
                 weekly = df_ret.groupby('week')['customer_id'].apply(lambda x: x.duplicated().sum()).reset_index()
                 returning_spark = create_sparkline(weekly['customer_id'], color='#9C27B0', tooltip_fmt='Week: {label}\nAmount: {value}', index_to_label=[str(d.date()) for d in weekly['week']])
             except Exception as e:
-                print(f"Returning sparkline error: {e}")
                 returning_spark = None
+        else:
+            returning_text = "No data available"
+            returning_fallback_msg = "No data available for prediction."
+
         # 5. Product Forecast (if product selected)
         product_id = self.product_combo.currentData() if self.product_combo else None
         product_text = "Not enough data"
         product_spark = None
+        product_fallback_msg = ""
         if product_id:
             product_ml = prophet_product_forecast(df_filtered, product_id, periods=1, freq='W')
             if product_ml is not None:
                 row = product_ml.iloc[-1]
-                product_text = f"₪{row['yhat']:.0f} (range: ₪{row['yhat_lower']:.0f} - ₪{row['yhat_upper']:.0f})"
+                if row['yhat'] < 0:
+                    product_text = "0 (model predicted negative value, fallback to 0)"
+                    product_fallback_msg = "Model predicted a negative value. This usually means there is no recent data or a sharp decline. Fallback to 0."
+                else:
+                    product_text = f"₪{row['yhat']:.0f} (range: ₪{row['yhat_lower']:.0f} - ₪{row['yhat_upper']:.0f})"
             else:
-                # fallback: Linear Regression
                 try:
                     from sklearn.linear_model import LinearRegression
                     df_lr = df_filtered[df_filtered['product_id'] == product_id].copy()
@@ -688,25 +714,31 @@ All predictions below use Facebook Prophet (time series ML model) on your filter
                         next_week = [[df_lr['date_ordinal'].max() + 7]]
                         pred = model_lr.predict(next_week)[0]
                         product_text = f"₪{pred:.0f} (LR)"
-                    else:
+                        product_fallback_msg = "Fallback: Linear Regression used due to limited data."
+                    elif len(X) > 0:
                         avg = df_lr['amount'].mean()
                         product_text = f"₪{avg:.0f} (avg)"
+                        product_fallback_msg = "Fallback: Average of available product data used due to insufficient data for ML."
+                    else:
+                        product_text = "No data available"
+                        product_fallback_msg = "No data available for prediction."
                 except Exception as e:
-                    print(f"Product fallback error: {e}")
-                    product_text = "Not enough data"
-            # sparkline - מגמת הזמנות מוצר
+                    product_text = "No data available"
+                    product_fallback_msg = f"Error in fallback: {e}"
             try:
                 df_prod = df_filtered[df_filtered['product_id'] == product_id].copy()
                 weekly = df_prod.set_index('date').resample('W').sum()
                 product_spark = create_sparkline(weekly['amount'], color='#E91E63', tooltip_fmt='Week: {label}\nAmount: ₪{value:,.0f}', index_to_label=[str(d.date()) for d in weekly.index])
             except Exception as e:
-                print(f"Product sparkline error: {e}")
                 product_spark = None
         else:
             product_text = "בחר מוצר"
+            product_fallback_msg = "No product selected."
+
         # 6. New Customers Forecast
         new_customers_text = "Not enough data"
         new_customers_spark = None
+        new_customers_fallback_msg = ""
         try:
             if not df_filtered.empty and 'customer_id' in df_filtered.columns and 'date' in df_filtered.columns:
                 df_new = df_filtered.copy()
@@ -726,7 +758,11 @@ All predictions below use Facebook Prophet (time series ML model) on your filter
                     future = m.make_future_dataframe(periods=1, freq='W')
                     forecast = m.predict(future)
                     row = forecast.iloc[-1]
-                    new_customers_text = f"{row['yhat']:.0f} (range: {row['yhat_lower']:.0f} - {row['yhat_upper']:.0f})"
+                    if row['yhat'] < 0:
+                        new_customers_text = "0 (model predicted negative value, fallback to 0)"
+                        new_customers_fallback_msg = "Model predicted a negative value. This usually means there is no recent data or a sharp decline. Fallback to 0."
+                    else:
+                        new_customers_text = f"{row['yhat']:.0f} (range: {row['yhat_lower']:.0f} - {row['yhat_upper']:.0f})"
                 else:
                     from statsmodels.tsa.arima.model import ARIMA
                     y = new_customers_per_week['new_customers']
@@ -734,20 +770,30 @@ All predictions below use Facebook Prophet (time series ML model) on your filter
                         model_arima = ARIMA(y, order=(1,1,1))
                         model_fit = model_arima.fit()
                         pred = model_fit.forecast(steps=1)
-                        new_customers_text = f"{pred.iloc[0]:.0f} (ARIMA)"
-                    else:
+                        if pred[0] < 0:
+                            new_customers_text = "0 (model predicted negative value, fallback to 0)"
+                            new_customers_fallback_msg = "Model predicted a negative value. This usually means there is no recent data or a sharp decline. Fallback to 0."
+                        else:
+                            new_customers_text = f"{pred[0]:.0f} (ARIMA)"
+                    elif len(y) > 0:
                         avg = y.mean()
-                        new_customers_text = f"{avg:.0f} (avg)"
+                        if avg < 0:
+                            new_customers_text = "0 (model predicted negative value, fallback to 0)"
+                            new_customers_fallback_msg = "Model predicted a negative value. This usually means there is no recent data or a sharp decline. Fallback to 0."
+                        else:
+                            new_customers_text = f"{avg:.0f} (avg)"
+                    else:
+                        new_customers_text = "No data available"
+                        new_customers_fallback_msg = "No data available for prediction."
                 # sparkline - מגמת לקוחות חדשים
                 try:
                     new_customers_spark = create_sparkline(new_customers_per_week['new_customers'], color='#00BCD4', tooltip_fmt='Week: {label}\nAmount: {value}', index_to_label=[str(d.date()) for d in new_customers_per_week['date']])
                 except Exception as e:
-                    print(f"New customers sparkline error: {e}")
                     new_customers_spark = None
         except Exception as e:
-            print(f"Error in new customers forecast: {e}")
-            new_customers_text = "Not enough data"
-            new_customers_spark = None
+            new_customers_text = "No data available"
+            new_customers_fallback_msg = f"Error in fallback: {e}"
+
         # Remove old forecast cards
         while self.forecast_cards_layout.count():
             item = self.forecast_cards_layout.takeAt(0)
@@ -756,12 +802,12 @@ All predictions below use Facebook Prophet (time series ML model) on your filter
                 widget.setParent(None)
         # Define new ML forecast cards
         cards = [
-            ("📦", "Order Forecast", order_text, order_spark, "#2196F3", "Predicted order amount for next week", "Predicted order amount for next week, calculated using a time series model (Prophet/ARIMA) on your historical order data."),
-            ("💰", "Revenue Forecast", revenue_text, revenue_spark, "#4CAF50", "Predicted revenue for next week", "Predicted revenue for next week, calculated using a time series model (Prophet) on your revenue data."),
-            ("💵", "Profit Forecast", profit_text, profit_spark, "#FF9800", "Predicted profit for next week", "Predicted profit for next week, calculated as revenue minus cost, using a time series model (Prophet) on your profit data."),
-            ("🔁", "Returning Customers", returning_text, returning_spark, "#9C27B0", "Predicted number of returning customers", "Predicted number of returning customers for next week, based on historical repeat customer patterns using Prophet."),
-            ("📦", "Product Forecast", product_text, product_spark, "#E91E63", "Predicted order amount for selected product", "Predicted order amount for the selected product for next week, using Prophet on product-specific order data."),
-            ("🆕", "New Customers Forecast", new_customers_text, new_customers_spark, "#00BCD4", "Predicted number of new customers", "Predicted number of new customers for next week, calculated using a time series model (Prophet/ARIMA) on the weekly count of first-time customers."),
+            ("📦", "Order Forecast", order_text, order_spark, "#2196F3", "Predicted order amount for next week", order_fallback_msg),
+            ("💰", "Revenue Forecast", revenue_text, revenue_spark, "#4CAF50", "Predicted revenue for next week", revenue_fallback_msg),
+            ("🔢", "Total Orders Forecast", orders_count_text, orders_count_spark, "#FF9800", "Predicted number of orders for next week", orders_count_fallback_msg),
+            ("🔁", "Returning Customers", returning_text, returning_spark, "#9C27B0", "Predicted number of returning customers", returning_fallback_msg),
+            ("📦", "Product Forecast", product_text, product_spark, "#E91E63", "Predicted order amount for the selected product", product_fallback_msg),
+            ("🆕", "New Customers Forecast", new_customers_text, new_customers_spark, "#00BCD4", "Predicted number of new customers", new_customers_fallback_msg),
         ]
         # Create cards with info buttons and interactivity
         self.card_widgets = []
@@ -814,17 +860,37 @@ All predictions below use Facebook Prophet (time series ML model) on your filter
 
             # Value
             value_label = QLabel(value)
-            value_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #333;")
+            value_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #333;")
             vbox.addWidget(value_label)
+
+            # Forecast range/uncertainty indication
+            if '(' in value and 'range:' in value:
+                import re
+                match = re.search(r'range: ₪([\d,]+) - ₪([\d,]+)', value)
+                if match:
+                    lower = int(match.group(1).replace(',', ''))
+                    upper = int(match.group(2).replace(',', ''))
+                    if upper - lower > 0.5 * max(1, lower):
+                        # High uncertainty, show warning
+                        warn_label = QLabel("⚠️ High uncertainty in forecast")
+                        warn_label.setStyleSheet("font-size: 11px; color: #e67e22; font-weight: bold;")
+                        vbox.addWidget(warn_label)
 
             # Sparkline (if exists)
             if spark is not None:
+                spark.setStyleSheet("border: none; background: transparent;")
                 vbox.addWidget(spark)
 
             # Description
             desc_label = QLabel(desc)
             desc_label.setStyleSheet("font-size: 11px; color: #666;")
             vbox.addWidget(desc_label)
+
+            # Short explanation
+            expl_label = QLabel(info_text)
+            expl_label.setWordWrap(True)
+            expl_label.setStyleSheet("font-size: 10px; color: #888; margin-top: 2px;")
+            vbox.addWidget(expl_label)
 
             self.forecast_cards_layout.addWidget(card, i // 3, i % 3)
             self.card_widgets.append(card)
@@ -973,7 +1039,7 @@ All predictions below use Facebook Prophet (time series ML model) on your filter
             # Update charts
             print("Updating charts...")
             self.update_profit_chart(orders_data)
-            self.update_beds_chart(bed_stages)
+            self.update_order_status_pie_chart(orders_data)
             self.update_orders_chart(orders_data)
             
             # Update recent activity
@@ -1066,6 +1132,66 @@ All predictions below use Facebook Prophet (time series ML model) on your filter
         chart.legend().setAlignment(Qt.AlignBottom)
         self.profit_chart.setChart(chart)
     
+    def update_order_status_pie_chart(self, orders_data):
+        from matplotlib.figure import Figure
+        from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+        # Prepare data
+        status_labels = ["Pending", "Processing", "Shipped", "Delivered", "Cancelled"]
+        colors = ['#f1c40f', '#e67e22', '#3498db', '#2ecc71', '#e74c3c']
+        status_counts = {k: 0 for k in status_labels}
+        total_orders = 0
+        if isinstance(orders_data, dict):
+            for order in orders_data.values():
+                if isinstance(order, dict):
+                    status = order.get("Status", "Pending")
+                    for valid in status_labels:
+                        if status.lower() == valid.lower():
+                            status = valid
+                            break
+                    if status in status_counts:
+                        status_counts[status] += 1
+                        total_orders += 1
+        sizes = [status_counts[k] for k in status_labels]
+        # Remove previous chart widget if exists
+        if self.beds_chart.layout() is not None:
+            while self.beds_chart.layout().count():
+                item = self.beds_chart.layout().takeAt(0)
+                widget = item.widget()
+                if widget:
+                    widget.setParent(None)
+        else:
+            self.beds_chart.setLayout(QVBoxLayout())
+        # Create matplotlib pie chart
+        fig = Figure(figsize=(4, 4))
+        ax = fig.add_subplot(111)
+        wedges, texts, autotexts = ax.pie(
+            sizes,
+            labels=status_labels,
+            colors=colors,
+            autopct=lambda pct: f'{pct:.1f}%' if pct > 0 else '',
+            startangle=90
+        )
+        ax.set_title('Order Status Distribution')
+        fig.tight_layout()
+        canvas = FigureCanvas(fig)
+        canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # Add hover effect for pie
+        def on_move(event):
+            found = False
+            for i, wedge in enumerate(wedges):
+                if wedge.contains_point([event.x, event.y], radius=1.5):
+                    wedge.set_alpha(0.6)
+                    percent = (sizes[i] / sum(sizes) * 100) if sum(sizes) > 0 else 0
+                    ax.set_title(f"{status_labels[i]}: {sizes[i]} orders ({percent:.1f}%)")
+                    found = True
+                else:
+                    wedge.set_alpha(1.0)
+            if not found:
+                ax.set_title('Order Status Distribution')
+            canvas.draw_idle()
+        canvas.mpl_connect('motion_notify_event', on_move)
+        self.beds_chart.layout().addWidget(canvas)
+    
     def update_orders_chart(self, orders_data):
         chart = QChart()
         chart.setTitle("Order Value Distribution")
@@ -1133,63 +1259,6 @@ All predictions below use Facebook Prophet (time series ML model) on your filter
         series.hovered.connect(hover_changed)
         
         self.orders_chart.setChart(chart)
-    
-    def update_beds_chart(self, bed_stages):
-        chart = QChart()
-        chart.setTitle("Beds Status")
-        chart.setBackgroundVisible(False)
-        chart.setPlotAreaBackgroundVisible(False)
-        chart.legend().setVisible(True)
-        chart.legend().setAlignment(Qt.AlignBottom)
-        # הקטן פונט של ה-legend
-        legend_font = QFont()
-        legend_font.setPointSize(8)
-        chart.legend().setFont(legend_font)
-        # הגדל רוחב מינימלי של ה-legend
-        chart.legend().setMinimumWidth(400)
-        series = QPieSeries()
-        stage_labels = {
-            'Spawn Run': 'Spawn Run',
-            'Pinning': 'Pinning',
-            'Fruiting': 'Fruiting',
-            'Harvesting': 'Harvesting',
-            'Empty': 'Empty'
-        }
-        colors = {
-            'Spawn Run': '#4e73df',
-            'Pinning': '#f6c23e',
-            'Fruiting': '#1cc88a',
-            'Harvesting': '#e74a3b',
-            'Empty': '#858796'
-        }
-        total_beds = sum(bed_stages.values())
-        for stage, count in bed_stages.items():
-            if count > 0:
-                percentage = (count / total_beds) * 100 if total_beds > 0 else 0
-                label = stage_labels.get(stage, stage)
-                # label ל-legend תמיד קצר
-                legend_name = label
-                # label על הפאי - מפורט
-                pie_label = f"{label}\n{count} מיטות ({percentage:.1f}%)"
-                if stage == 'Empty':
-                    legend_name = 'Empty'
-                    pie_label = f"Empty\n{count} מיטות ({percentage:.1f}%)"
-                slice = series.append(legend_name, count)
-                slice.setBrush(QColor(colors.get(stage, '#000000')))
-                slice.setLabelVisible(True)
-                slice.setLabel(pie_label)
-                slice.setLabelFont(QFont("Arial", 8))
-                slice.setExploded(True)
-                slice.setExplodeDistanceFactor(0.05)
-        chart.addSeries(series)
-        title_font = QFont()
-        title_font.setPointSize(14)
-        title_font.setBold(True)
-        chart.setTitleFont(title_font)
-        for slice in series.slices():
-            # Tooltip מפורט עם שם מלא, כמות ואחוז
-            slice.hovered.connect(lambda state, slice=slice, label=slice.label(): self.handle_slice_hover(state, slice, label))
-        self.beds_chart.setChart(chart)
     
     def handle_slice_hover(self, state, slice, label=None):
         """Handle hover events for pie chart slices"""

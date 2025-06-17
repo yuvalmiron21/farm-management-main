@@ -2,6 +2,7 @@ import os
 import json
 from firebase_admin import db
 from datetime import datetime, timedelta
+from UI.retry_utils import retry_with_backoff
 
 class CacheManager:
     _instance = None
@@ -33,6 +34,7 @@ class CacheManager:
         except Exception as e:
             print(f"Failed to save cache to disk: {e}")
     
+    @retry_with_backoff
     def _load_cache_from_disk(self):
         if not os.path.exists(self._cache_file):
             return

@@ -6,9 +6,10 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QWidget,
                              QFrame, QComboBox, QRadioButton, QButtonGroup, QStackedWidget,
                              QScrollArea, QSizePolicy, QGraphicsDropShadowEffect, QLineEdit,
                              QTableWidget, QTableWidgetItem, QHeaderView, QStyledItemDelegate,
-                             QToolButton, QMenu, QAction, QDialog, QSpacerItem, QGridLayout)
+                             QToolButton, QMenu, QAction, QDialog, QSpacerItem, QGridLayout,
+                             QGraphicsOpacityEffect)
 from PyQt5.QtGui import QFont, QIcon, QColor, QPalette, QBrush, QPen, QPixmap, QFontDatabase
-from PyQt5.QtCore import Qt, QSettings, QTranslator, QLocale, QTimer, QSize, QPoint
+from PyQt5.QtCore import Qt, QSettings, QTranslator, QLocale, QTimer, QSize, QPoint, QPropertyAnimation, QEasingCurve
 from firebase_admin import db, credentials, initialize_app
 import firebase_admin
 from Order_gui import OrderGUI
@@ -258,65 +259,97 @@ class StatusBadgeDelegate(QStyledItemDelegate):
 class ModernKpiCard(QFrame):
     def __init__(self, title, value, icon, spark_data):
         super().__init__()
-        # Choose color by title with maximum transparency (alpha=0.1)
+        # Theme-aware color map
         color_map = {
-            'Total Revenue': 'rgba(76,175,80,0.1)',
-            'Active Orders': 'rgba(255,152,0,0.1)',
-            'Customers': 'rgba(33,150,243,0.1)',
-            'Occupancy': 'rgba(156,39,176,0.1)'
+            'Total Revenue': {'light': 'rgba(76,175,80,0.1)', 'dark': 'rgba(76,175,80,0.3)', 'icon': '#4caf50'},
+            'Active Orders': {'light': 'rgba(255,152,0,0.1)', 'dark': 'rgba(255,152,0,0.3)', 'icon': '#ff9800'},
+            'Customers': {'light': 'rgba(33,150,243,0.1)', 'dark': 'rgba(33,150,243,0.3)', 'icon': '#2196f3'},
+            'Occupancy': {'light': 'rgba(156,39,176,0.1)', 'dark': 'rgba(156,39,176,0.3)', 'icon': '#9c27b0'}
         }
-        bg_color = color_map.get(title, 'rgba(255,255,255,0.1)')
+        theme = 'dark' if QApplication.instance().palette().color(QPalette.Window).lightness() < 128 else 'light'
+        bg_color = color_map.get(title, {'light': 'rgba(255,255,255,0.1)', 'dark': 'rgba(255,255,255,0.3)', 'icon': '#888'})[theme]
+        icon_color = color_map.get(title, {'icon': '#888'})['icon']
+
+        # Styling
         self.setStyleSheet(f"""
             QFrame {{
-                background: {bg_color};
-                border-radius: 16px;
-                box-shadow: 0 4px 12px rgba(44,62,80,0.1); /* Reduced shadow for smoother look */
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                            stop:0 {bg_color}, stop:1 rgba(255,255,255,0.05));
+                border-radius: 20px;
+                border: 1.5px solid #fff;
+                box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+                transition: all 0.3s ease;
             }}
             QLabel {{
-                background: transparent; /* Ensure no background on labels */
-                padding: 0; /* Remove padding to avoid visible lines */
-                margin: 0; /* Remove margins to avoid gaps */
+                background: transparent;
+                border: none;
+                color: #333;
+                padding: 0;
+                margin: 0;
             }}
         """)
-        self.setFixedSize(340, 120)
+        self.setFixedSize(360, 140)
+
+        # Layout
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 6, 8, 6)  # Reduced margins for smoother integration
-        layout.setSpacing(8)  # Reduced spacing
+        layout.setContentsMargins(18, 14, 18, 14)
+        layout.setSpacing(16)
 
         # Left: icon + text
         text_col = QVBoxLayout()
         text_col.setAlignment(Qt.AlignCenter)
         icon_label = QLabel(icon)
-        icon_label.setFont(QFont("Segoe UI Emoji", 10))
+        icon_label.setFont(QFont("FontAwesome, Segoe UI Emoji", 28))
+        icon_label.setStyleSheet("background: transparent; border: none; color: %s;" % icon_color)
         icon_label.setAlignment(Qt.AlignCenter)
-        icon_label.setStyleSheet("background: transparent;")
         value_label = QLabel(str(value))
-        value_label.setFont(QFont("Roboto", 10, QFont.Bold))
-        value_label.setStyleSheet("color: #222; background: transparent;")
+        value_label.setFont(QFont("Inter, Segoe UI", 28, QFont.Bold))
+        value_label.setStyleSheet("background: transparent; border: none; color: #1A1A1A; letter-spacing: 0.5px;")
         value_label.setAlignment(Qt.AlignCenter)
         title_label = QLabel(title)
-        title_label.setFont(QFont("Roboto", 8, QFont.Bold))
-        title_label.setStyleSheet("color: #444; background: transparent;")
+        title_label.setFont(QFont("Inter, Segoe UI", 14, QFont.Medium))
+        title_label.setStyleSheet("background: transparent; border: none; color: #666; letter-spacing: 1px;")
         title_label.setAlignment(Qt.AlignCenter)
         text_col.addWidget(icon_label)
         text_col.addWidget(value_label)
         text_col.addWidget(title_label)
         text_col.addStretch(1)
-        layout.addLayout(text_col, 2)
+        layout.addLayout(text_col, 3)
 
         # Right: sparkline
         spark = self.create_sparkline(spark_data)
-        layout.addWidget(spark, 1)
+        layout.addWidget(spark, 2)
 
-    def create_sparkline(self, data):
+        # Fade-in animation
+        self.setGraphicsEffect(QGraphicsOpacityEffect())
+        self.animation = QPropertyAnimation(self.graphicsEffect(), b"opacity")
+        self.animation.setDuration(500)
+        self.animation.setStartValue(0)
+        self.animation.setEndValue(1)
+        self.animation.setEasingCurve(QEasingCurve.InOutQuad)
+        self.animation.start()
+
+    def create_sparkline(self, spark_data):
+        # Placeholder for sparkline widget, replace with your actual implementation
         fig = Figure(figsize=(2, 0.8), dpi=60)
         ax = fig.add_subplot(111)
-        ax.plot(data, color='#1976d2', linewidth=2)
+        ax.plot(spark_data, color='#1976d2', linewidth=2)
         ax.axis('off')
         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
         canvas = FigureCanvas(fig)
-        canvas.setFixedSize(90, 60)
+        canvas.setFixedSize(100, 60)
+        canvas.setStyleSheet("background: transparent; border: none;")
+        canvas.setToolTip("Data trend over time")
         return canvas
+
+    def enterEvent(self, event):
+        self.setStyleSheet(self.styleSheet() + "box-shadow: 0 10px 24px rgba(0,0,0,0.15);")
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        # Remove the hover shadow
+        self.setStyleSheet(self.styleSheet().replace("box-shadow: 0 10px 24px rgba(0,0,0,0.15);", "box-shadow: 0 6px 20px rgba(0,0,0,0.08);"))
+        super().leaveEvent(event)
 
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
@@ -491,8 +524,8 @@ class DashboardWindow(QWidget):
                 font-size: 13px;
                 color: #222;
                 gridline-color: #f0f0f0;
-                font-family: 'Outfit';
-                font-weight: 700;
+                font-family: 'Segoe UI';
+                font-weight: 600;
             }
             QHeaderView::section {
                 background: #e0e0e0;
@@ -502,15 +535,15 @@ class DashboardWindow(QWidget):
                 border: none;
                 border-bottom: 2px solid #bdbdbd;
                 padding: 12px 0;
-                font-family: 'Outfit';
-                font-weight: 700;
+                font-family: 'Segoe UI';
+                font-weight: 600;
             }
             QTableWidget::item {
                 padding: 10px;
                 border-bottom: 1px solid #e0e0e0;
                 font-size: 12px;
-                font-family: 'Outfit';
-                font-weight: 700;
+                font-family: 'Segoe UI';
+                font-weight: 600;
             }
             QTableWidget::item:selected {
                 background: #d6e4f0;
@@ -577,15 +610,20 @@ class ModernSidebar(QFrame):
                 color: #fff;
                 border: none;
                 text-align: left;
-                padding: 12px 20px;
-                font-size: 14px;
-                font-weight: 500;
+                padding: 15px 25px;
+                font-size: 15px;
+                font-weight: 600;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                border-radius: 8px;
+                margin: 2px 10px;
             }
             QPushButton:hover {
                 background: #353b48;
+                color: #f1c40f;
             }
             QPushButton:checked {
                 background: #43a047;
+                color: white;
                 font-weight: bold;
             }
         """)
@@ -595,7 +633,7 @@ class ModernSidebar(QFrame):
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout.setSpacing(8)
         
         # Logo and title
         logo_layout = QHBoxLayout()
@@ -605,13 +643,13 @@ class ModernSidebar(QFrame):
         logo.setPixmap(pix)
         logo.setFixedSize(32, 32)
         title = QLabel("Mush")
-        title.setFont(QFont("Segoe UI", 22, QFont.Bold))
+        title.setFont(QFont("Segoe UI", 24, QFont.Bold))
         title.setStyleSheet("color: #fff;")
         logo_layout.addWidget(logo)
         logo_layout.addWidget(title)
         logo_layout.addStretch()
         layout.addLayout(logo_layout)
-        layout.addSpacing(18)
+        layout.addSpacing(20)
 
         # Menu buttons
         self.buttons = []
@@ -646,12 +684,14 @@ class ModernSidebar(QFrame):
                 color: #3498db;
                 margin: 10px;
                 font-weight: bold;
+                font-size: 14px;
             }
             QPushButton:hover {
                 background: #2d3436;
+                color: #2980b9;
             }
         """)
-        back_btn.clicked.connect(lambda: self.button_clicked(self.buttons[0]))  # First button is Dashboard
+        back_btn.clicked.connect(lambda: self.button_clicked(self.buttons[0]))
         layout.addWidget(back_btn)
 
         # Logout button
@@ -661,9 +701,11 @@ class ModernSidebar(QFrame):
                 color: #ff7675;
                 margin: 10px;
                 font-weight: bold;
+                font-size: 14px;
             }
             QPushButton:hover {
                 background: #2d3436;
+                color: #e74c3c;
             }
         """)
         logout_btn.clicked.connect(self.logout)
@@ -698,41 +740,24 @@ class Main_gui(QMainWindow):
         self._old_pos = None
 
     def set_font(self):
-        # Load only the full variable font
-        font_path = os.path.join(PARENT_DIR, "UI", "fonts", "Outfit-VariableFont_wght.ttf")
-        font_family = None
-        if os.path.exists(font_path):
-            font_id = QFontDatabase.addApplicationFont(font_path)
-            if font_id != -1:
-                loaded_families = QFontDatabase.applicationFontFamilies(font_id)
-                print("Loaded font families:", loaded_families)
-                if loaded_families:
-                    font_family = loaded_families[0]
-        if font_family:
-            # Set bold font as default
-            app_font = QFont(font_family, 11, QFont.Bold)
-            app_font.setStyleStrategy(QFont.PreferAntialias)
-            QApplication.setFont(app_font)
-            QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
-            QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
-            # Apply QSS for all widgets
-            QApplication.instance().setStyleSheet(f"""
-                * {{
-                    font-family: '{font_family}';
-                    font-size: 11pt;
-                    font-weight: 700;
-                }}
-                QLabel, QPushButton, QComboBox, QLineEdit, QTableWidget, QHeaderView::section, QTableWidget::item, QMenu, QToolButton {{
-                    font-family: '{font_family}';
-                    font-weight: 700;
-                }}
-            """)
-        else:
-            print("Failed to load Outfit font. Using default font.")
-            app_font = QFont()
-            app_font.setPointSize(11)
-            app_font.setWeight(QFont.Bold)
-            QApplication.setFont(app_font)
+        # Set Segoe UI as the default font for the entire application
+        app_font = QFont("Segoe UI", 11, QFont.Bold)
+        app_font.setStyleStrategy(QFont.PreferAntialias)
+        QApplication.setFont(app_font)
+        QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+        QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+        # Apply QSS for all widgets
+        QApplication.instance().setStyleSheet(f"""
+            * {{
+                font-family: 'Segoe UI';
+                font-size: 11pt;
+                font-weight: 600;
+            }}
+            QLabel, QPushButton, QComboBox, QLineEdit, QTableWidget, QHeaderView::section, QTableWidget::item, QMenu, QToolButton {{
+                font-family: 'Segoe UI';
+                font-weight: 600;
+            }}
+        """)
 
     def init_ui(self):
         self.setWindowTitle("Mushroom Farm Management System")
@@ -740,48 +765,48 @@ class Main_gui(QMainWindow):
         self.setStyleSheet("""
             QMainWindow {
                 background: #f5f6fa;
-                font-family: 'Outfit';
-                font-weight: 700;
+                font-family: 'Segoe UI';
+                font-weight: 600;
             }
             QLabel {
                 color: #2d3436;
-                font-family: 'Outfit';
-                font-weight: 700;
+                font-family: 'Segoe UI';
+                font-weight: 600;
             }
             QPushButton {
-                font-family: 'Outfit';
-                font-weight: 700;
+                font-family: 'Segoe UI';
+                font-weight: 600;
             }
             QComboBox {
-                font-family: 'Outfit';
-                font-weight: 700;
+                font-family: 'Segoe UI';
+                font-weight: 600;
             }
             QLineEdit {
-                font-family: 'Outfit';
-                font-weight: 700;
+                font-family: 'Segoe UI';
+                font-weight: 600;
             }
             QTableWidget {
-                font-family: 'Outfit';
-                font-weight: 700;
+                font-family: 'Segoe UI';
+                font-weight: 600;
                 font-size: 13px;
             }
             QHeaderView::section {
-                font-family: 'Outfit';
-                font-weight: 700;
+                font-family: 'Segoe UI';
+                font-weight: 600;
                 font-size: 14px;
             }
             QTableWidget::item {
-                font-family: 'Outfit';
-                font-weight: 700;
+                font-family: 'Segoe UI';
+                font-weight: 600;
                 font-size: 12px;
             }
             QMenu {
-                font-family: 'Outfit';
-                font-weight: 700;
+                font-family: 'Segoe UI';
+                font-weight: 600;
             }
             QToolButton {
-                font-family: 'Outfit';
-                font-weight: 700;
+                font-family: 'Segoe UI';
+                font-weight: 600;
             }
         """)
         self.setup_navigation()
@@ -1258,18 +1283,18 @@ class Main_gui(QMainWindow):
         layout.setContentsMargins(40, 40, 40, 40)
         layout.setSpacing(20)
         title = QLabel("Live Data Simulation")
-        title.setFont(QFont("Roboto", 18, QFont.Bold))
+        title.setFont(QFont("Segoe UI", 18, QFont.Bold))
         title.setAlignment(Qt.AlignHCenter)
         layout.addWidget(title)
         self.simulator = MushroomSimulator()
         self.simulation_running = False
         self.sim_btn = QPushButton("Start Simulation")
-        self.sim_btn.setFont(QFont("Roboto", 12, QFont.Bold))
+        self.sim_btn.setFont(QFont("Segoe UI", 12, QFont.Bold))
         self.sim_btn.setStyleSheet("padding: 12px 24px; border-radius: 8px; background: #43a047; color: white;")
         self.sim_btn.clicked.connect(self.toggle_simulation)
         layout.addWidget(self.sim_btn, alignment=Qt.AlignHCenter)
         self.sim_status = QLabel("Simulation is stopped.")
-        self.sim_status.setFont(QFont("Roboto", 10))
+        self.sim_status.setFont(QFont("Segoe UI", 10))
         self.sim_status.setAlignment(Qt.AlignHCenter)
         layout.addWidget(self.sim_status)
 

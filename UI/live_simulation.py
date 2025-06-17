@@ -5,6 +5,7 @@ import time
 import threading
 from PyQt5.QtCore import QObject, pyqtSignal
 import uuid
+from UI.retry_utils import retry_with_backoff
 
 class MushroomSimulator(QObject):
     update_signal = pyqtSignal(str, dict)  # Signal for UI updates
@@ -71,6 +72,7 @@ class MushroomSimulator(QObject):
                         break
                     time.sleep(1)
 
+    @retry_with_backoff
     def _update_growing_beds(self):
         """Update growing beds status and conditions"""
         beds_ref = db.reference('GrowingBed')

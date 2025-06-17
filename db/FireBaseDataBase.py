@@ -5,6 +5,7 @@ from models import Customer  # Import your models here
 from models import Farm
 from models import Mushroom_type
 from db.cache_manager import CacheManager
+from UI.retry_utils import retry_with_backoff
 
 # Initialize Firebase
 SERVICE_ACCOUNT_FILE = "farm-management-FireBase_credentials.json"  # עדכון שם הקובץ
@@ -16,6 +17,7 @@ app = Flask(__name__)
 _cache_manager = CacheManager()
 
 # Helper functions
+@retry_with_backoff
 def get_all_records(model_name):
     data = _cache_manager.get_data(model_name)
     if data:
