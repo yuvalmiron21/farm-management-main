@@ -119,7 +119,7 @@ class AlgorithmExplanationPopup(QDialog):
         layout.addWidget(title_label)
         
         # Algorithm name
-        algo_name = QLabel(f"Algorithm: {algorithm_details['name']}")
+        algo_name = QLabel(f"Algorithm: {algorithm_details['model_name']}")
         layout.addWidget(algo_name)
         
         # Features used

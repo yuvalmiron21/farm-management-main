@@ -2,7 +2,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QLineEdit, QTableWidget, QTableWidgetItem, QPushButton,
                              QMessageBox, QDialog, QDialogButtonBox, QInputDialog,
                              QHeaderView, QComboBox, QDateEdit, QFormLayout)
-from PyQt5.QtCore import Qt, QDate
+from PyQt5.QtCore import Qt, QDate, QEvent
 from PyQt5.QtGui import QFont, QColor, QDoubleValidator
 from firebase_admin import db
 import uuid
@@ -93,6 +93,7 @@ class GrowingBedGUI(QWidget):
             "ID", "Name", "Location", "Size (m²)", "Status", 
             "Crop Type", "Planting Date", "Harvest Date"
         ])
+        self.bed_table.viewport().installEventFilter(self)
         self.bed_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.bed_table.setAlternatingRowColors(True)
         self.bed_table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -326,6 +327,32 @@ class GrowingBedGUI(QWidget):
                 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to delete growing bed: {str(e)}")
+
+    def eventFilter(self, source, event):
+        if source == self.bed_table.viewport() and event.type() == QEvent.Wheel and event.modifiers() & Qt.ControlModifier:
+            current_font = self.bed_table.font()
+            point_size = current_font.pointSize()
+            
+            if event.angleDelta().y() > 0:
+                point_size += 1
+            else:
+                point_size = max(6, point_size - 1)
+            
+            current_font.setPointSize(point_size)
+            self.bed_table.setFont(current_font)
+            
+            # Adjust header font and row height
+            header_font = self.bed_table.horizontalHeader().font()
+            header_font.setPointSize(point_size)
+            self.bed_table.horizontalHeader().setFont(header_font)
+            self.bed_table.horizontalHeader().setMinimumHeight(point_size + 22)
+
+            for i in range(self.bed_table.rowCount()):
+                self.bed_table.setRowHeight(i, point_size + 20)
+
+            return True
+
+        return super().eventFilter(source, event)
 
 class AddGrowingBedDialog(QDialog):
     def __init__(self, parent=None):

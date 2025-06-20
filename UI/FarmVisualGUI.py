@@ -4,18 +4,54 @@ from PyQt5.QtWidgets import (
     QSizePolicy, QSpacerItem, QScrollArea, QMenu, QInputDialog, QMessageBox,
     QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QDialog, QFormLayout,
     QDialogButtonBox, QLineEdit, QComboBox, QGraphicsLineItem, QGraphicsTextItem,
-    QGraphicsRectItem
+    QGraphicsRectItem, QGraphicsObject, QColorDialog
 )
-from PyQt5.QtCore import Qt, QRectF, QPointF, QSizeF, pyqtSignal, QPropertyAnimation, QEasingCurve, QTimer
+from PyQt5.QtCore import (
+    Qt, QRectF, QPointF, QSizeF, pyqtSignal, QPropertyAnimation, QEasingCurve, 
+    QTimer, pyqtProperty, pyqtSlot, QLineF, QEvent, QPoint
+)
 from PyQt5.QtGui import (
     QPainter, QBrush, QPen, QColor, QLinearGradient, QFont,
-    QPainterPath, QPolygonF, QRadialGradient, QPainterPath, QFontDatabase
+    QPainterPath, QPolygonF, QRadialGradient, QFontDatabase, QCursor
 )
 from firebase_admin import db
 from datetime import datetime
 import random
 import json
 import os
+
+class CustomGraphicsScene(QGraphicsScene):
+    """A custom scene with a grid background."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.grid_size = 20
+        self.background_color = QColor("#f0f4f8")
+        self.light_pen = QPen(QColor("#e3eaf0"), 1)
+        self.dark_pen = QPen(QColor("#d8dde2"), 1.5)
+
+    def drawBackground(self, painter, rect):
+        painter.fillRect(rect, self.background_color)
+        
+        left = int(rect.left()) - (int(rect.left()) % self.grid_size)
+        top = int(rect.top()) - (int(rect.top()) % self.grid_size)
+        
+        lines_light, lines_dark = [], []
+        for x in range(left, int(rect.right()), self.grid_size):
+            if x % (self.grid_size * 5) == 0:
+                lines_dark.append(QLineF(x, rect.top(), x, rect.bottom()))
+            else:
+                lines_light.append(QLineF(x, rect.top(), x, rect.bottom()))
+                
+        for y in range(top, int(rect.bottom()), self.grid_size):
+            if y % (self.grid_size * 5) == 0:
+                lines_dark.append(QLineF(rect.left(), y, rect.right(), y))
+            else:
+                lines_light.append(QLineF(rect.left(), y, rect.right(), y))
+                
+        painter.setPen(self.light_pen)
+        painter.drawLines(lines_light)
+        painter.setPen(self.dark_pen)
+        painter.drawLines(lines_dark)
 
 class MushroomBlock(QGraphicsItem):
     def __init__(self, parent=None):
@@ -61,700 +97,715 @@ class MushroomBlock(QGraphicsItem):
                 stem_height = 10 * self.growth_level
                 painter.drawRect(x_offset - 2, y_offset, 4, stem_height)
 
-class GrowingBedItem(QGraphicsItem):
+class GrowingBedItem(QGraphicsObject):
+    bed_moved = pyqtSignal(str, QPointF)
+    edit_requested = pyqtSignal(str)
+
     def __init__(self, bed_id, bed_data, parent=None):
         super().__init__(parent)
         self.bed_id = bed_id
         self.bed_data = bed_data
+        
+        self.setFlags(QGraphicsItem.ItemIsMovable | QGraphicsItem.ItemIsSelectable | QGraphicsItem.ItemSendsScenePositionChanges)
         self.setAcceptHoverEvents(True)
-        self.setFlag(QGraphicsItem.ItemIsMovable)
-        self.setFlag(QGraphicsItem.ItemIsSelectable)
+        self.setCursor(QCursor(Qt.PointingHandCursor))
+        self.setZValue(1)
+
+        self._scale = 1.0
+        self._is_hovered = False
+        self.width = 180
+        self.height = 130
+        self.detailed_panel_width = 220
+        self.detailed_panel_height = 150
         
-        # Visual properties
-        self.width = 200
-        self.height = 150
-        self.hover = False
-        self.selected = False
-        self.hover_scale = 1.0
-        self.hover_animation = None
-        
-        # Process bed data
-        self.environmental_data = {
-            'temperature': bed_data.get('Temperature', 22),
-            'humidity': bed_data.get('Humidity', 85),
-            'co2': bed_data.get('CO2Level', 500),
-            'stage': bed_data.get('CurrentGrowthStage', 'Empty'),
-            'last_updated': bed_data.get('LastUpdated', datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
-            'farm_id': bed_data.get('FarmID', 'N/A')
+        self.stage_colors = {
+            "Spawn Run": ("#78909c", "#546e7a"),
+            "Pinning": ("#ffd54f", "#ffc107"),
+            "Fruiting": ("#66bb6a", "#43a047"),
+            "Harvesting": ("#7e57c2", "#5e35b1"),
+            "Empty": ("#ef5350", "#e53935")
         }
 
+        self.title_font = QFont("Arial", 11, QFont.Bold)
+        self.label_font = QFont("Arial", 8)
+        self.value_font = QFont("Arial", 9, QFont.Bold)
+
+    def get_view(self):
+        if self.scene() and self.scene().views():
+            return self.scene().views()[0]
+        return None
+
+    def _get_panel_x_position(self):
+        """Determines the panel's x position relative to the item's origin."""
+        panel_x = self.width + 10
+        view = self.get_view()
+        if view:
+            visible_rect = view.mapToScene(view.viewport().rect()).boundingRect()
+            panel_abs_right = self.scenePos().x() + panel_x + self.detailed_panel_width
+            if panel_abs_right > visible_rect.right():
+                panel_x = -self.detailed_panel_width - 10
+        return panel_x
+
+    @pyqtProperty(float)
+    def scale(self):
+        return self._scale
+
+    @scale.setter
+    def scale(self, value):
+        self._scale = value
+        self.prepareGeometryChange()
+        self.update()
+
     def boundingRect(self):
-        # Adjust bounding rect for hover scaling
-        scale_factor = self.hover_scale
-        width = (self.width + 220) * scale_factor
-        height = (self.height + 20) * scale_factor
-        return QRectF(-10 * scale_factor, -10 * scale_factor, width, height)
+        base_rect = QRectF(-5, -5, self.width + 10, self.height + 10)
+        if self._is_hovered or self.isSelected():
+            panel_x = self._get_panel_x_position()
+            panel_rect = QRectF(panel_x, 0, self.detailed_panel_width, self.detailed_panel_height)
+            return base_rect.united(panel_rect.adjusted(-5, -5, 5, 5))
+        return base_rect
+
+    def shape(self):
+        path = QPainterPath()
+        path.addRoundedRect(0, 0, self.width, self.height, 10, 10)
+        return path
 
     def paint(self, painter, option, widget):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.TextAntialiasing)
-        # Load Outfit font if available
-        font_dir = os.path.join(os.path.dirname(__file__), "fonts")
-        regular_path = os.path.join(font_dir, "Outfit-Regular.ttf")
-        variable_path = os.path.join(font_dir, "Outfit-VariableFont_wght.ttf")
-        font_family = None
-        if os.path.exists(regular_path):
-            font_id = QFontDatabase.addApplicationFont(regular_path)
-            if font_id != -1:
-                font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
-        elif os.path.exists(variable_path):
-            font_id = QFontDatabase.addApplicationFont(variable_path)
-            if font_id != -1:
-                font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
-        if font_family:
-            main_font = QFont(font_family, 12, QFont.Bold)
-            panel_title_font = QFont(font_family, 11, QFont.Bold)
-            panel_value_font = QFont(font_family, 10)
-        else:
-            main_font = QFont("Arial", 12, QFont.Bold)
-            panel_title_font = QFont("Arial", 11, QFont.Bold)
-            panel_value_font = QFont("Arial", 10)
         
-        # Apply hover scale
-        if self.hover or self.isSelected():
-            painter.scale(self.hover_scale, self.hover_scale)
+        transform = painter.transform()
+        painter.scale(self._scale, self._scale)
         
-        # Main bed container
-        stage_colors = {
-            "Spawn Run": QColor("#78909c"),    # Blue-gray
-            "Pinning": QColor("#ffd54f"),      # Amber
-            "Fruiting": QColor("#66bb6a"),     # Light green
-            "Harvesting": QColor("#7e57c2"),   # Deep purple
-            "Empty": QColor("#e57373")         # Light red
-        }
-        
-        stage = self.environmental_data['stage']
-        bed_color = stage_colors.get(stage, QColor("#78909c"))
-        
-        # Create shadow path
-        shadow_path = QPainterPath()
-        shadow_path.addRoundedRect(2, 2, self.width, self.height, 10, 10)
-        
-        # Draw shadow
+        path = self.shape()
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(0, 0, 0, 30))
-        painter.drawPath(shadow_path)
+        painter.setBrush(QColor(0, 0, 0, 20 if self.isSelected() else 15))
+        painter.drawPath(path.translated(2, 2))
         
-        # Draw main container with gradient
+        stage = self.bed_data.get('CurrentGrowthStage', 'Empty')
+        color1_hex, color2_hex = self.stage_colors.get(stage, self.stage_colors["Empty"])
         gradient = QLinearGradient(0, 0, 0, self.height)
-        if self.hover or self.isSelected():
-            gradient.setColorAt(0, bed_color.lighter(120))
-            gradient.setColorAt(1, bed_color.lighter(80))
-        else:
-            gradient.setColorAt(0, bed_color)
-            gradient.setColorAt(1, bed_color.darker(120))
-        
-        painter.setBrush(QBrush(gradient))
-        painter.setPen(QPen(Qt.black, 2))
-        painter.drawRoundedRect(0, 0, self.width, self.height, 10, 10)
-        
-        # Draw header background
-        header_gradient = QLinearGradient(0, 0, 0, 40)
-        header_gradient.setColorAt(0, QColor(0, 0, 0, 60))
-        header_gradient.setColorAt(1, QColor(0, 0, 0, 0))
-        painter.setBrush(QBrush(header_gradient))
-        painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(0, 0, self.width, 40, 10, 10)
-        
-        # Draw bed ID and stage with improved text visibility
-        painter.setFont(main_font)
-        # Draw text shadow
-        painter.setPen(QPen(QColor(0, 0, 0, 100)))
-        painter.drawText(11, 26, f"Bed {self.bed_id}")
-        painter.drawText(11, 46, stage)
-        
-        # Draw main text
-        painter.setPen(QPen(Qt.white))
-        painter.drawText(10, 25, f"Bed {self.bed_id}")
-        painter.drawText(10, 45, stage)
-        
-        # If bed is selected or hovered, show environmental data
-        if self.hover or self.isSelected():
-            self.paint_data_panel(painter, panel_title_font, panel_value_font)
+        gradient.setColorAt(0, QColor(color1_hex))
+        gradient.setColorAt(1, QColor(color2_hex))
+        painter.setBrush(gradient)
+        painter.setPen(QPen(QColor(0,0,0, 40), 1))
+        painter.drawPath(path)
 
-    def paint_data_panel(self, painter, title_font, value_font):
-        panel_x = self.width + 10
-        panel_y = 0
-        panel_width = 220
-        panel_height = self.height
+        painter.setPen(Qt.white)
+        painter.setFont(self.title_font)
+        painter.drawText(QRectF(15, 10, self.width - 30, 25), f"Bed {self.bed_id}")
         
-        # Draw panel shadow
-        shadow_path = QPainterPath()
-        shadow_path.addRoundedRect(panel_x + 2, panel_y + 2, panel_width, panel_height, 8, 8)
+        painter.setFont(self.label_font)
+        painter.setPen(QColor(255, 255, 255, 180))
+        painter.drawText(QRectF(15, 30, self.width - 30, 20), stage)
+
+        progress = (list(self.stage_colors.keys()).index(stage) + 1) / len(self.stage_colors) if stage in self.stage_colors else 0
+        painter.setBrush(QColor(255, 255, 255, 50))
+        painter.drawRoundedRect(15, self.height - 25, self.width - 30, 10, 5, 5)
+        painter.setBrush(QColor(255, 255, 255, 150))
+        painter.drawRoundedRect(15, self.height - 25, int((self.width - 30) * progress), 10, 5, 5)
+
+        painter.setTransform(transform)
+        
+        if self.isSelected() or self._is_hovered:
+            self.paint_data_panel(painter)
+
+    def paint_data_panel(self, painter):
+        panel_x = self._get_panel_x_position()
+        panel_width = self.detailed_panel_width
+        panel_height = self.detailed_panel_height
+        
+        path = QPainterPath()
+        path.addRoundedRect(panel_x, 0, panel_width, panel_height, 8, 8)
+        
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(0, 0, 0, 30))
-        painter.drawPath(shadow_path)
+        painter.setBrush(QColor(0, 0, 0, 15))
+        painter.drawPath(path.translated(1, 1))
+
+        painter.setBrush(QColor(255, 255, 255, 250))
+        painter.setPen(QPen(QColor("#e0e0e0"), 1))
+        painter.drawPath(path)
         
-        # Draw panel background with gradient
-        gradient = QLinearGradient(panel_x, 0, panel_x + panel_width, 0)
-        gradient.setColorAt(0, QColor(255, 255, 255, 250))
-        gradient.setColorAt(1, QColor(245, 245, 245, 250))
-        
-        painter.setBrush(QBrush(gradient))
-        painter.setPen(QPen(QColor("#e0e0e0")))
-        painter.drawRoundedRect(panel_x, panel_y, panel_width, panel_height, 8, 8)
-        
-        # Draw data with improved visibility
-        y_offset = 20
-        line_height = 28
-        
+        data = self.bed_data
         data_items = [
-            ("🌡️", "Temperature", f"{self.environmental_data['temperature']}°C"),
-            ("💧", "Humidity", f"{self.environmental_data['humidity']}%"),
-            ("☁️", "CO2 Level", f"{self.environmental_data['co2']} ppm"),
-            ("🌱", "Growth Stage", f"{self.environmental_data['stage']}")
+            ("🌡️", "Temperature", f"{data.get('Temperature', 0)}°C"),
+            ("💧", "Humidity", f"{data.get('Humidity', 0)}%"),
+            ("☁️", "CO2 Level", f"{data.get('CO2Level', 0)} ppm"),
+            ("🕒", "Last Update", f"{data.get('LastUpdated', 'N/A').split(' ')[0]}")
         ]
         
+        y_offset = 20
         for icon, label, value in data_items:
-            # Draw icon
-            painter.setFont(title_font)
-            painter.setPen(QPen(QColor("#666666")))
+            painter.setFont(QFont("Arial", 12))
+            painter.setPen(Qt.black)
             painter.drawText(panel_x + 15, y_offset, icon)
             
-            # Draw label
-            painter.setFont(value_font)
-            painter.setPen(QPen(QColor("#333333")))
+            painter.setFont(self.label_font)
+            painter.setPen(QColor("#555"))
             painter.drawText(panel_x + 40, y_offset, label)
             
-            # Draw value with background highlight
-            value_rect = QRectF(panel_x + 130, y_offset - 15, 80, 20)
-            painter.setBrush(QColor(245, 245, 245))
-            painter.setPen(QPen(QColor("#e0e0e0")))
-            painter.drawRoundedRect(value_rect, 4, 4)
-            
-            painter.setFont(title_font)
-            painter.setPen(QPen(QColor("#2c3e50")))
-            painter.drawText(value_rect, Qt.AlignCenter, value)
-            
-            y_offset += line_height
+            painter.setFont(self.value_font)
+            painter.setPen(QColor("#111"))
+            painter.drawText(QRectF(panel_x + 100, y_offset - 10, panel_width - 115, 20), Qt.AlignRight | Qt.AlignVCenter, value)
+            y_offset += 30
 
     def hoverEnterEvent(self, event):
-        self.hover = True
-        self.hover_scale = 1.05
-        self.update()
+        self.prepareGeometryChange()
+        self._is_hovered = True
+        self.setZValue(100)
+        self.anim = QPropertyAnimation(self, b"scale")
+        self.anim.setEndValue(1.1)
+        self.anim.setDuration(200)
+        self.anim.setEasingCurve(QEasingCurve.OutQuad)
+        self.anim.start()
+        super().hoverEnterEvent(event)
 
     def hoverLeaveEvent(self, event):
-        self.hover = False
-        self.hover_scale = 1.0
-        self.update()
+        self.prepareGeometryChange()
+        self._is_hovered = False
+        self.setZValue(1)
+        self.anim = QPropertyAnimation(self, b"scale")
+        self.anim.setEndValue(1.0)
+        self.anim.setDuration(200)
+        self.anim.setEasingCurve(QEasingCurve.OutQuad)
+        self.anim.start()
+        super().hoverLeaveEvent(event)
+
+    def _clear_guides(self):
+        if hasattr(self, 'guide_lines'):
+            for line in self.guide_lines:
+                if line.scene():
+                    self.scene().removeItem(line)
+            self.guide_lines.clear()
+
+    def mouseReleaseEvent(self, event):
+        self._clear_guides()
+        super().mouseReleaseEvent(event)
+        
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.ItemSelectedChange:
+            self.prepareGeometryChange()
+
+        if change == QGraphicsItem.ItemPositionChange and self.scene():
+            self._clear_guides()
+            new_pos = value
+            snap_threshold = 10
+            grid_size = self.scene().grid_size
+
+            final_x = round(new_pos.x() / grid_size) * grid_size
+            final_y = round(new_pos.y() / grid_size) * grid_size
+            
+            other_beds = [item for item in self.scene().items() if isinstance(item, GrowingBedItem) and item != self]
+
+            my_rect_future = QRectF(new_pos, self.boundingRect().size())
+            
+            for other in other_beds:
+                other_rect = other.sceneBoundingRect()
+                
+                # --- Vertical Snapping (X axis) ---
+                alignments_x = {
+                    other_rect.left(): my_rect_future.left(),
+                    other_rect.right(): my_rect_future.right(),
+                    other_rect.center().x(): my_rect_future.center().x()
+                }
+                for target_x, my_x in alignments_x.items():
+                    if abs(target_x - my_x) < snap_threshold:
+                        final_x = new_pos.x() - (my_x - target_x)
+                        self._draw_guide(QLineF(target_x, other_rect.top(), target_x, my_rect_future.bottom()))
+                        break
+                
+                # --- Horizontal Snapping (Y axis) ---
+                alignments_y = {
+                    other_rect.top(): my_rect_future.top(),
+                    other_rect.bottom(): my_rect_future.bottom(),
+                    other_rect.center().y(): my_rect_future.center().y()
+                }
+                for target_y, my_y in alignments_y.items():
+                    if abs(target_y - my_y) < snap_threshold:
+                        final_y = new_pos.y() - (my_y - target_y)
+                        self._draw_guide(QLineF(other_rect.left(), target_y, my_rect_future.right(), target_y))
+                        break
+
+            return QPointF(final_x, final_y)
+
+        return super().itemChange(change, value)
+
+    def _draw_guide(self, line):
+        if not hasattr(self, 'guide_lines'):
+            self.guide_lines = []
+        pen = QPen(QColor("#1abc9c"), 1.5, Qt.DashLine)
+        guide = self.scene().addLine(line, pen)
+        guide.setZValue(200)
+        self.guide_lines.append(guide)
 
     def mouseDoubleClickEvent(self, event):
-        if self.scene() and hasattr(self.scene().parent(), 'edit_bed_dialog'):
-            self.scene().parent().edit_bed_dialog(self)
-        event.accept()
+        self.edit_requested.emit(self.bed_id)
+        super().mouseDoubleClickEvent(event)
 
 class ResizableRectItem(QGraphicsRectItem):
+    """A resizable rectangle for defining rooms."""
     def __init__(self, x, y, w, h):
         super().__init__(x, y, w, h)
-        self.setFlags(QGraphicsRectItem.ItemIsMovable | QGraphicsRectItem.ItemIsSelectable)
+        self.setFlags(QGraphicsRectItem.ItemIsMovable | QGraphicsRectItem.ItemIsSelectable | QGraphicsRectItem.ItemSendsScenePositionChanges)
         self.setAcceptHoverEvents(True)
-        self.setData(0, "room_rect")
-        self.handle_size = 16  # Larger handles
-        self.handles = []  # [(rect, pos)]
+        self.setZValue(-1)
+        self.handle_size = 10
+        self.handles = {}
         self.update_handles()
-        self.resizing = False
         self.resizing_handle = None
-        self.moving = False
-        self.last_mouse_pos = None
 
     def update_handles(self):
-        self.handles = []
         rect = self.rect()
-        # 4 corners
-        for px, py in [(rect.left(), rect.top()), (rect.right(), rect.top()), (rect.right(), rect.bottom()), (rect.left(), rect.bottom())]:
-            self.handles.append((QRectF(px - self.handle_size/2, py - self.handle_size/2, self.handle_size, self.handle_size), (px, py)))
+        self.handles[1] = QRectF(rect.left(), rect.top(), self.handle_size, self.handle_size)
+        self.handles[2] = QRectF(rect.right() - self.handle_size, rect.top(), self.handle_size, self.handle_size)
+        self.handles[3] = QRectF(rect.left(), rect.bottom() - self.handle_size, self.handle_size, self.handle_size)
+        self.handles[4] = QRectF(rect.right() - self.handle_size, rect.bottom() - self.handle_size, self.handle_size, self.handle_size)
 
     def paint(self, painter, option, widget):
-        # Thicker border
-        painter.setPen(QPen(QColor("#43a047"), 5 if self.isSelected() else 3, Qt.SolidLine))
-        painter.setBrush(QColor(67, 160, 71, 40))  # Semi-transparent green fill
-        painter.drawRect(self.rect())
+        painter.setRenderHint(QPainter.Antialiasing)
+        pen = QPen(QColor("#3498db"), 2, Qt.SolidLine)
         if self.isSelected():
-            color = QColor("#43a047")
-            color.setAlpha(180)
-            painter.setBrush(color)
-            for handle, _ in self.handles:
+            pen.setStyle(Qt.DashLine)
+        painter.setPen(pen)
+        
+        brush_color = QColor("#3498db")
+        brush_color.setAlpha(20)
+        painter.setBrush(brush_color)
+        painter.drawRoundedRect(self.rect(), 5, 5)
+
+        if self.isSelected():
+            painter.setBrush(QColor("#2980b9"))
+            for handle in self.handles.values():
                 painter.drawRect(handle)
 
     def hoverMoveEvent(self, event):
-        for idx, (handle, (hx, hy)) in enumerate(self.handles):
-            if handle.contains(event.pos()):
+        for handle_pos, handle_rect in self.handles.items():
+            if handle_rect.contains(event.pos()):
                 self.setCursor(Qt.SizeFDiagCursor)
                 return
         self.setCursor(Qt.OpenHandCursor)
+        super().hoverMoveEvent(event)
 
     def mousePressEvent(self, event):
-        for idx, (handle, (hx, hy)) in enumerate(self.handles):
-            if handle.contains(event.pos()):
-                self.resizing = True
-                self.resizing_handle = idx
-                self.setCursor(Qt.SizeFDiagCursor)
+        for handle_pos, handle_rect in self.handles.items():
+            if handle_rect.contains(event.pos()):
+                self.resizing_handle = handle_pos
                 return
-        if self.rect().contains(event.pos()):
-            self.moving = True
-            self.last_mouse_pos = event.scenePos()
-            self.setCursor(Qt.ClosedHandCursor)
-        else:
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self.resizing and self.resizing_handle is not None:
+        if self.resizing_handle:
+            self.prepareGeometryChange()
             rect = self.rect()
-            pos = event.pos()
-            # Keep minimum size
-            min_size = 20
-            if self.resizing_handle == 0:  # top-left
-                new_x = min(pos.x(), rect.right() - min_size)
-                new_y = min(pos.y(), rect.bottom() - min_size)
-                new_rect = QRectF(new_x, new_y, rect.right()-new_x, rect.bottom()-new_y)
-            elif self.resizing_handle == 1:  # top-right
-                new_x = max(pos.x(), rect.left() + min_size)
-                new_y = min(pos.y(), rect.bottom() - min_size)
-                new_rect = QRectF(rect.left(), new_y, new_x-rect.left(), rect.bottom()-new_y)
-            elif self.resizing_handle == 2:  # bottom-right
-                new_x = max(pos.x(), rect.left() + min_size)
-                new_y = max(pos.y(), rect.top() + min_size)
-                new_rect = QRectF(rect.left(), rect.top(), new_x-rect.left(), new_y-rect.top())
-            elif self.resizing_handle == 3:  # bottom-left
-                new_x = min(pos.x(), rect.right() - min_size)
-                new_y = max(pos.y(), rect.top() + min_size)
-                new_rect = QRectF(new_x, rect.top(), rect.right()-new_x, new_y-rect.top())
-            if new_rect.width() >= min_size and new_rect.height() >= min_size:
-                self.setRect(new_rect)
-                self.update_handles()
-        elif self.moving and self.last_mouse_pos is not None:
-            delta = event.scenePos() - self.last_mouse_pos
-            self.moveBy(delta.x(), delta.y())
-            self.last_mouse_pos = event.scenePos()
+            if self.resizing_handle == 1:
+                rect.setTopLeft(event.pos())
+            elif self.resizing_handle == 2:
+                rect.setTopRight(event.pos())
+            elif self.resizing_handle == 3:
+                rect.setBottomLeft(event.pos())
+            elif self.resizing_handle == 4:
+                rect.setBottomRight(event.pos())
+            self.setRect(rect)
+            self.update_handles()
         else:
             super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        self.resizing = False
         self.resizing_handle = None
-        if self.moving:
-            self.moving = False
-            self.last_mouse_pos = None
-        self.setCursor(Qt.OpenHandCursor)
         super().mouseReleaseEvent(event)
+
+class EditBedDialog(QDialog):
+    def __init__(self, bed_data, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Edit Bed {bed_data.get('id', '')}")
+        self.setMinimumWidth(350)
+        self.setStyleSheet("""
+            QDialog { background-color: #f8f9fa; }
+            QLabel { font-size: 13px; }
+            QLineEdit, QComboBox { 
+                padding: 8px; border: 1px solid #ced4da; border-radius: 4px; 
+                background-color: white; font-size: 13px;
+            }
+            QPushButton { 
+                padding: 8px 16px; border-radius: 4px; font-weight: bold;
+                background-color: #007bff; color: white; border: none;
+            }
+            QPushButton:hover { background-color: #0056b3; }
+            QPushButton#cancelButton { background-color: #6c757d; }
+            QPushButton#cancelButton:hover { background-color: #5a6268; }
+        """)
+
+        self.layout = QFormLayout(self)
+        
+        self.stage_combo = QComboBox()
+        stages = ["Spawn Run", "Pinning", "Fruiting", "Harvesting", "Empty"]
+        self.stage_combo.addItems(stages)
+        self.stage_combo.setCurrentText(bed_data.get('CurrentGrowthStage', 'Empty'))
+        self.layout.addRow("Growth Stage:", self.stage_combo)
+
+        self.temp_input = QLineEdit(str(bed_data.get('Temperature', 0)))
+        self.layout.addRow("Temperature (°C):", self.temp_input)
+        
+        self.humidity_input = QLineEdit(str(bed_data.get('Humidity', 0)))
+        self.layout.addRow("Humidity (%):", self.humidity_input)
+
+        self.co2_input = QLineEdit(str(bed_data.get('CO2Level', 0)))
+        self.layout.addRow("CO2 Level (ppm):", self.co2_input)
+
+        self.buttons = QDialogButtonBox()
+        ok_button = self.buttons.addButton(QDialogButtonBox.Ok)
+        cancel_button = self.buttons.addButton(QDialogButtonBox.Cancel)
+        cancel_button.setObjectName("cancelButton")
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        self.layout.addWidget(self.buttons)
+
+    def get_data(self):
+        try:
+            return {
+                "CurrentGrowthStage": self.stage_combo.currentText(),
+                "Temperature": float(self.temp_input.text()),
+                "Humidity": float(self.humidity_input.text()),
+                "CO2Level": int(self.co2_input.text()),
+                "LastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+        except ValueError:
+            QMessageBox.warning(self, "Invalid Input", "Please ensure all numeric fields are valid numbers.")
+            return None
+
+class PannableGraphicsView(QGraphicsView):
+    def __init__(self, scene, parent=None):
+        super().__init__(scene, parent)
+        self._panning = False
+        self._last_mouse_pos = QPoint()
+        self.setDragMode(QGraphicsView.NoDrag)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and not self.itemAt(event.pos()):
+            self._panning = True
+            self._last_mouse_pos = event.pos()
+            self.viewport().setCursor(Qt.ClosedHandCursor)
+            event.accept()
+        else:
+            self._panning = False
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._panning:
+            delta = event.pos() - self._last_mouse_pos
+            self._last_mouse_pos = event.pos()
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._panning:
+            self._panning = False
+            self.viewport().setCursor(Qt.ArrowCursor)
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
 
 class FarmVisualGUI(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Mushroom Farm Visual Management")
-        self.setGeometry(100, 100, 1200, 800)
-        self.room_lines = []  # [(x1, y1, x2, y2)]
-        self.room_texts = []  # [(x, y, text)]
-        self.room_rects = []  # [(x, y, w, h)]
-        self.adding_line = False
-        self.adding_text = False
-        self.line_start = None
-        self.rect_start = None
-        self.room_design_file = os.path.join(os.path.dirname(__file__), "room_design.json")
-        self.adding_rect = False
+        self.setGeometry(100, 100, 1400, 900)
+        self.bed_positions = {}
+        self.room_design_file = os.path.join(os.path.dirname(__file__), "farm_layout.json")
+        self.adding_mode = None
+        self.current_drawing_item = None
+        self.drawing_start_pos = None
+
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0,0,0,0)
+        self.layout.setSpacing(0)
         
-        # Main layout
-        self.layout = QVBoxLayout()
-        self.layout.setSpacing(15)
-        self.layout.setContentsMargins(20, 20, 20, 20)
+        self.setup_toolbar()
         
-        # Title with shadow effect
-        title_label = QLabel("🌾 Mushroom Farm Management")
-        title_label.setStyleSheet("""
-            QLabel {
-                font-size: 28px;
-                color: #2c3e50;
-                padding: 15px 20px;
-                font-weight: bold;
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, 
-                    stop:0 #f5f5f5, stop:1 transparent);
-                border-radius: 10px;
-            }
-        """)
-        
-        # Add shadow to title
-        title_shadow = QGraphicsDropShadowEffect()
-        title_shadow.setBlurRadius(15)
-        title_shadow.setColor(QColor(0, 0, 0, 30))
-        title_shadow.setOffset(0, 2)
-        title_label.setGraphicsEffect(title_shadow)
-        
-        self.layout.addWidget(title_label)
-        
-        # Toolbar with enhanced styling
-        toolbar = QHBoxLayout()
-        
-        button_style = """
-            QPushButton {
-                background-color: #2ecc71;
-                color: white;
-                border: none;
-                padding: 12px 25px;
-                font-size: 14px;
-                font-weight: bold;
-                border-radius: 8px;
-                min-width: 150px;
-            }
-            QPushButton:hover {
-                background-color: #27ae60;
-                transform: scale(1.05);
-                transition: all 0.2s ease-in-out;
-            }
-            QPushButton:pressed {
-                background-color: #219a52;
-                transform: scale(0.95);
-            }
-        """
-        
-        add_bed_btn = QPushButton("🛏️ Add Growing Bed")
-        add_bed_btn.setStyleSheet(button_style)
-        add_bed_btn.setCursor(Qt.PointingHandCursor)
-        
-        # Add shadow to button
-        btn_shadow = QGraphicsDropShadowEffect()
-        btn_shadow.setBlurRadius(10)
-        btn_shadow.setColor(QColor(0, 0, 0, 50))
-        btn_shadow.setOffset(0, 2)
-        add_bed_btn.setGraphicsEffect(btn_shadow)
-        
-        add_bed_btn.clicked.connect(self.add_growing_bed)
-        toolbar.addWidget(add_bed_btn)
-        
-        # Add zoom buttons
-        zoom_in_btn = QPushButton("🔍+")
-        zoom_in_btn.setStyleSheet(button_style.replace("#2ecc71", "#3498db"))
-        zoom_in_btn.setCursor(Qt.PointingHandCursor)
-        zoom_in_btn.clicked.connect(self.zoom_in)
-        toolbar.addWidget(zoom_in_btn)
-        
-        zoom_out_btn = QPushButton("🔍-")
-        zoom_out_btn.setStyleSheet(button_style.replace("#2ecc71", "#3498db"))
-        zoom_out_btn.setCursor(Qt.PointingHandCursor)
-        zoom_out_btn.clicked.connect(self.zoom_out)
-        toolbar.addWidget(zoom_out_btn)
-        
-        self.add_rect_btn = QPushButton("⬛ Add Rectangle")
-        self.add_rect_btn.setStyleSheet(button_style.replace("#2ecc71", "#ff9800"))
-        self.add_rect_btn.setCursor(Qt.PointingHandCursor)
-        self.add_rect_btn.clicked.connect(self.start_adding_rect)
-        toolbar.addWidget(self.add_rect_btn)
-        
-        self.add_text_btn = QPushButton("📝 Add Text")
-        self.add_text_btn.setStyleSheet(button_style.replace("#2ecc71", "#1976d2"))
-        self.add_text_btn.setCursor(Qt.PointingHandCursor)
-        self.add_text_btn.clicked.connect(self.start_adding_text)
-        toolbar.addWidget(self.add_text_btn)
-        
-        self.save_design_btn = QPushButton("💾 Save Design")
-        self.save_design_btn.setStyleSheet(button_style.replace("#2ecc71", "#43a047"))
-        self.save_design_btn.setCursor(Qt.PointingHandCursor)
-        self.save_design_btn.clicked.connect(self.save_room_design)
-        toolbar.addWidget(self.save_design_btn)
-        
-        self.clear_btn = QPushButton("🗑️ Clear All")
-        self.clear_btn.setStyleSheet(button_style.replace("#2ecc71", "#e74c3c"))
-        self.clear_btn.setCursor(Qt.PointingHandCursor)
-        self.clear_btn.clicked.connect(self.clear_room_design)
-        toolbar.addWidget(self.clear_btn)
-        
-        toolbar.addStretch()
-        
-        refresh_btn = QPushButton("🔄 Refresh")
-        refresh_btn.setStyleSheet(button_style.replace("#2ecc71", "#3498db"))
-        refresh_btn.setCursor(Qt.PointingHandCursor)
-        
-        # Add shadow to refresh button
-        refresh_shadow = QGraphicsDropShadowEffect()
-        refresh_shadow.setBlurRadius(10)
-        refresh_shadow.setColor(QColor(0, 0, 0, 50))
-        refresh_shadow.setOffset(0, 2)
-        refresh_btn.setGraphicsEffect(refresh_shadow)
-        
-        refresh_btn.clicked.connect(self.load_farm_data)
-        toolbar.addWidget(refresh_btn)
-        
-        self.layout.addLayout(toolbar)
-        
-        # Farm view with enhanced styling
-        self.scene = QGraphicsScene(parent=self)
-        self.view = QGraphicsView(self.scene)
+        self.scene = CustomGraphicsScene(self)
+        self.view = PannableGraphicsView(self.scene, self)
         self.view.setRenderHint(QPainter.Antialiasing)
-        self.view.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
-        self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        
-        # Enable mouse wheel zoom
-        self.view.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
-        self.view.setResizeAnchor(QGraphicsView.AnchorUnderMouse)
-        self.view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.view.setDragMode(QGraphicsView.ScrollHandDrag)
-        
-        # Create gradient background
-        bg_gradient = QLinearGradient(0, 0, 0, 800)
-        bg_gradient.setColorAt(0, QColor("#f0f4c3"))
-        bg_gradient.setColorAt(1, QColor("#dcedc8"))
-        self.view.setBackgroundBrush(QBrush(bg_gradient))
-        
-        # Add shadow to view
-        view_shadow = QGraphicsDropShadowEffect()
-        view_shadow.setBlurRadius(20)
-        view_shadow.setColor(QColor(0, 0, 0, 40))
-        view_shadow.setOffset(0, 0)
-        self.view.setGraphicsEffect(view_shadow)
+        self.view.setViewportUpdateMode(QGraphicsView.BoundingRectViewportUpdate)
+        self.view.setStyleSheet("border: none;")
+        self.view.viewport().installEventFilter(self)
         
         self.layout.addWidget(self.view)
         
-        self.setLayout(self.layout)
-        
-        # Load initial data
+        self.load_design()
         self.load_farm_data()
+
+    def setup_toolbar(self):
+        toolbar_container = QWidget()
+        toolbar_container.setStyleSheet("background-color: #2c3e50;")
+        toolbar_layout = QVBoxLayout(toolbar_container)
+        toolbar_layout.setContentsMargins(10, 10, 10, 10)
+
+        title_label = QLabel("Farm Layout & Management")
+        title_label.setStyleSheet("font-size: 20px; color: white; font-weight: bold; padding-bottom: 10px;")
+        toolbar_layout.addWidget(title_label)
+
+        toolbar_frame = QFrame()
+        toolbar = QHBoxLayout(toolbar_frame)
+        toolbar.setContentsMargins(0,0,0,0)
+        toolbar.setSpacing(10)
         
-        # Initialize zoom factor
-        self.zoom_factor = 1.0
+        btn_style = """
+            QPushButton {
+                background-color: #34495e; color: white; border: none; padding: 8px 16px;
+                font-size: 13px; border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #4a627a; }
+            QPushButton:checked { background-color: #1abc9c; color: white; }
+        """
         
-        self.view.mousePressEvent = self.mousePressEvent_override
-        self.load_room_design()
+        add_bed_btn = QPushButton("🛏️ Add Bed")
+        add_bed_btn.setStyleSheet(btn_style)
+        add_bed_btn.clicked.connect(self.add_growing_bed)
+        toolbar.addWidget(add_bed_btn)
+
+        add_rect_btn = QPushButton("⬜ Add Area")
+        add_rect_btn.setCheckable(True)
+        add_rect_btn.setStyleSheet(btn_style)
+        add_rect_btn.clicked.connect(lambda checked: self.set_adding_mode('rect' if checked else None, add_rect_btn))
+        toolbar.addWidget(add_rect_btn)
+        
+        add_text_btn = QPushButton("✍️ Add Label")
+        add_text_btn.setCheckable(True)
+        add_text_btn.setStyleSheet(btn_style)
+        add_text_btn.clicked.connect(lambda checked: self.set_adding_mode('text' if checked else None, add_text_btn))
+        toolbar.addWidget(add_text_btn)
+        
+        toolbar.addStretch()
+
+        zoom_in_btn = QPushButton("➕ Zoom In")
+        zoom_in_btn.setStyleSheet(btn_style)
+        zoom_in_btn.clicked.connect(self.zoom_in)
+        toolbar.addWidget(zoom_in_btn)
+        
+        zoom_out_btn = QPushButton("➖ Zoom Out")
+        zoom_out_btn.setStyleSheet(btn_style)
+        zoom_out_btn.clicked.connect(self.zoom_out)
+        toolbar.addWidget(zoom_out_btn)
+        
+        change_bg_btn = QPushButton("🎨 Background")
+        change_bg_btn.setStyleSheet(btn_style)
+        change_bg_btn.clicked.connect(self.change_background_color)
+        toolbar.addWidget(change_bg_btn)
+
+        save_btn = QPushButton("💾 Save Layout")
+        save_btn.setStyleSheet(btn_style.replace("#34495e", "#27ae60").replace("#4a627a", "#2ecc71"))
+        save_btn.clicked.connect(self.save_design)
+        toolbar.addWidget(save_btn)
+        
+        toolbar_layout.addWidget(toolbar_frame)
+        self.layout.addWidget(toolbar_container)
+
+    def set_adding_mode(self, mode, button):
+        self.adding_mode = mode
+        if mode:
+            self.view.setCursor(Qt.CrossCursor)
+            for btn in self.findChildren(QPushButton):
+                if isinstance(btn, QPushButton) and btn.isCheckable() and btn != button:
+                    btn.setChecked(False)
+        else:
+            self.view.setCursor(Qt.ArrowCursor)
+
+    def zoom_in(self):
+        self.view.scale(1.2, 1.2)
+
+    def zoom_out(self):
+        self.view.scale(1/1.2, 1/1.2)
+    
+    def wheelEvent(self, event):
+        if event.modifiers() & Qt.ControlModifier:
+            delta = event.angleDelta().y()
+            if delta > 0:
+                self.zoom_in()
+            else:
+                self.zoom_out()
+        else:
+            super().wheelEvent(event)
+
+    def change_background_color(self):
+        color = QColorDialog.getColor(self.scene.background_color, self, "Select Background Color", QColorDialog.ShowAlphaChannel)
+        if color.isValid():
+            self.scene.background_color = color
+            self.scene.update()
+
+    @pyqtSlot(str, QPointF)
+    def on_bed_moved(self, bed_id, pos):
+        self.bed_positions[bed_id] = {'x': pos.x(), 'y': pos.y()}
 
     def load_farm_data(self):
-        """Load growing beds from the database"""
         try:
-            self.scene.clear()
+            for item in self.scene.items():
+                if isinstance(item, GrowingBedItem):
+                    self.scene.removeItem(item)
             
             ref = db.reference('GrowingBed')
-            beds_data = ref.get()
+            beds_data = ref.get() or {}
             
-            if not beds_data:
-                return
-            
-            if isinstance(beds_data, dict):
-                for bed_id, bed_data in beds_data.items():
-                    if isinstance(bed_data, dict):
-                        bed_item = GrowingBedItem(bed_id, bed_data)
-                        
-                        # Position beds in a grid layout
-                        row = len(self.scene.items()) // 3
-                        col = len(self.scene.items()) % 3
-                        x = col * 450  # Increased spacing
-                        y = row * 200  # Increased spacing
-                        bed_item.setPos(x, y)
-                        
-                        self.scene.addItem(bed_item)
-            
-            # Update scene rectangle with padding
-            rect = self.scene.itemsBoundingRect()
-            self.scene.setSceneRect(rect.adjusted(-50, -50, 50, 50))
-            
-            # Fit view to scene
-            self.view.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
+            for bed_id, bed_data in beds_data.items():
+                bed_item = GrowingBedItem(bed_id, bed_data)
+                bed_item.bed_moved.connect(self.on_bed_moved)
+                bed_item.edit_requested.connect(self.open_bed_editor)
+                
+                if bed_id in self.bed_positions:
+                    pos_data = self.bed_positions[bed_id]
+                    bed_item.setPos(pos_data['x'], pos_data['y'])
+                else:
+                    row = len(beds_data) // 5
+                    col = len(beds_data) % 5
+                    bed_item.setPos(col * 220, 500 + row * 160)
+                self.scene.addItem(bed_item)
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load farm data: {str(e)}")
 
-    def add_growing_bed(self):
-        """Add a new growing bed"""
+    @pyqtSlot(str)
+    def open_bed_editor(self, bed_id):
         try:
-            ref = db.reference('GrowingBed')
-            existing_beds = ref.get() or {}
-            next_bed_id = max([int(bid) for bid in existing_beds.keys()] + [500]) + 1
+            bed_ref = db.reference(f'GrowingBed/{bed_id}')
+            bed_data = bed_ref.get()
+            if not bed_data:
+                QMessageBox.warning(self, "Error", f"Could not find data for bed {bed_id}.")
+                return
             
-            new_bed_data = {
-                "BedID": next_bed_id,
-                "FarmID": 1,
-                "CO2Level": 500,
-                "Humidity": 85,
-                "Temperature": 22,
-                "CurrentGrowthStage": "Empty",
-                "LastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
+            bed_data['id'] = bed_id
+            self.dialog = EditBedDialog(bed_data, self)
             
-            ref.child(str(next_bed_id)).set(new_bed_data)
-            self.load_farm_data()
-            
-            QMessageBox.information(self, "Success", f"Added new growing bed with ID: {next_bed_id}")
-            
+            if self.dialog.exec_() == QDialog.Accepted:
+                new_data = self.dialog.get_data()
+                if new_data:
+                    bed_ref.update(new_data)
+                    self.load_farm_data()
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to add growing bed: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to open editor: {e}")
 
-    def resizeEvent(self, event):
-        """Handle window resize events"""
-        super().resizeEvent(event)
-        self.view.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
+    def save_design(self):
+        design = {
+            "beds": self.bed_positions, 
+            "rects": [], 
+            "texts": [],
+            "background_color": self.scene.background_color.name(QColor.HexArgb)
+        }
+        for item in self.scene.items():
+            if isinstance(item, ResizableRectItem):
+                r = item.rect()
+                design["rects"].append({"x": r.x(), "y": r.y(), "w": r.width(), "h": r.height()})
+            elif isinstance(item, QGraphicsTextItem):
+                 design["texts"].append({"x": item.x(), "y": item.y(), "text": item.toPlainText()})
+        
+        try:
+            with open(self.room_design_file, "w") as f:
+                json.dump(design, f, indent=4)
+            QMessageBox.information(self, "Success", "Farm layout saved!")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Could not save layout: {e}")
 
-    def zoom_in(self):
-        self.zoom_factor *= 1.2
-        self.view.scale(1.2, 1.2)
+    def load_design(self):
+        for item in self.scene.items():
+            if not isinstance(item, GrowingBedItem):
+                self.scene.removeItem(item)
 
-    def zoom_out(self):
-        self.zoom_factor /= 1.2
-        self.view.scale(1/1.2, 1/1.2)
-
-    def wheelEvent(self, event):
-        # Zoom with mouse wheel
-        if event.angleDelta().y() > 0:
-            self.zoom_in()
-        else:
-            self.zoom_out()
-
-    def edit_bed_dialog(self, bed_item):
-        bed_data = bed_item.bed_data
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"Edit Bed {bed_item.bed_id}")
-        layout = QFormLayout(dialog)
-
-        temp_edit = QLineEdit(str(bed_data.get('Temperature', '')))
-        humidity_edit = QLineEdit(str(bed_data.get('Humidity', '')))
-        co2_edit = QLineEdit(str(bed_data.get('CO2Level', '')))
-        stage_combo = QComboBox()
-        stages = ["Empty", "Spawn Run", "Pinning", "Fruiting", "Harvesting"]
-        stage_combo.addItems(stages)
-        stage_combo.setCurrentText(bed_data.get('CurrentGrowthStage', 'Empty'))
-
-        layout.addRow("Temperature (°C):", temp_edit)
-        layout.addRow("Humidity (%):", humidity_edit)
-        layout.addRow("CO2 Level (ppm):", co2_edit)
-        layout.addRow("Growth Stage:", stage_combo)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        layout.addWidget(buttons)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-
-        if dialog.exec_() == QDialog.Accepted:
-            # Update in Firebase
-            ref = db.reference('GrowingBed').child(bed_item.bed_id)
-            ref.update({
-                "Temperature": float(temp_edit.text()),
-                "Humidity": float(humidity_edit.text()),
-                "CO2Level": float(co2_edit.text()),
-                "CurrentGrowthStage": stage_combo.currentText(),
+        if not os.path.exists(self.room_design_file):
+            return
+            
+        try:
+            with open(self.room_design_file, "r") as f:
+                design = json.load(f)
+            
+            self.bed_positions = design.get("beds", {})
+            bg_color = design.get("background_color", "#f0f4f8")
+            self.scene.background_color = QColor(bg_color)
+            
+            for r_data in design.get("rects", []):
+                rect = ResizableRectItem(r_data['x'], r_data['y'], r_data['w'], r_data['h'])
+                self.scene.addItem(rect)
+            for t_data in design.get("texts", []):
+                text = QGraphicsTextItem(t_data['text'])
+                text.setPos(t_data['x'], t_data['y'])
+                text.setDefaultTextColor(QColor("#34495e"))
+                text.setFont(QFont("Arial", 14, QFont.Bold))
+                text.setFlags(QGraphicsTextItem.ItemIsMovable | QGraphicsTextItem.ItemIsSelectable)
+                text.setZValue(0)
+                self.scene.addItem(text)
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Could not load layout: {e}")
+    
+    def add_growing_bed(self):
+        bed_id, ok = QInputDialog.getText(self, 'Add Growing Bed', 'Enter new bed ID:')
+        if ok and bed_id:
+            try:
+                ref = db.reference(f'GrowingBed/{bed_id}')
+                ref.set({
+                    "CurrentGrowthStage": "Empty",
+                    "Humidity": 0,
+                    "Temperature": 0,
+                    "CO2Level": 0,
                 "LastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             })
-            # Update local
-            bed_item.bed_data["Temperature"] = float(temp_edit.text())
-            bed_item.bed_data["Humidity"] = float(humidity_edit.text())
-            bed_item.bed_data["CO2Level"] = float(co2_edit.text())
-            bed_item.bed_data["CurrentGrowthStage"] = stage_combo.currentText()
-            bed_item.bed_data["LastUpdated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            bed_item.environmental_data = {
-                'temperature': bed_item.bed_data["Temperature"],
-                'humidity': bed_item.bed_data["Humidity"],
-                'co2': bed_item.bed_data["CO2Level"],
-                'stage': bed_item.bed_data["CurrentGrowthStage"],
-                'last_updated': bed_item.bed_data["LastUpdated"],
-                'farm_id': bed_item.bed_data.get('FarmID', 'N/A')
-            }
-            bed_item.update()
+                self.load_farm_data()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to add bed: {e}")
 
-    def start_adding_rect(self):
-        self.adding_rect = True
-        self.adding_line = False
-        self.adding_text = False
-        self.rect_start = None
-        QMessageBox.information(self, "Add Rectangle", "Click two corners to create a rectangle.")
+    def eventFilter(self, source, event):
+        if source != self.view.viewport():
+            return super().eventFilter(source, event)
 
-    def start_adding_text(self):
-        self.adding_text = True
-        self.adding_line = False
-        QMessageBox.information(self, "Add Room Text", "Click where you want to place the text label.")
-
-    def mousePressEvent_override(self, event):
-        pos = self.view.mapToScene(event.pos())
-        if event.button() == Qt.RightButton:
-            item = self.scene.itemAt(pos, self.view.transform())
-            if item and hasattr(item, 'data') and item.data(0) == "room_rect":
-                menu = QMenu()
-                delete_action = menu.addAction("Delete")
-                action = menu.exec_(self.view.mapToGlobal(event.pos()))
-                if action == delete_action:
-                    self.scene.removeItem(item)
-                    self.remove_room_item(item)
-                    self.save_room_design()
-                return
-        if self.adding_rect:
-            if self.rect_start is None:
-                self.rect_start = pos
-            else:
-                x1, y1 = self.rect_start.x(), self.rect_start.y()
-                x2, y2 = pos.x(), pos.y()
-                rect = QRectF(min(x1, x2), min(y1, y2), abs(x2-x1), abs(y2-y1))
-                rect_item = ResizableRectItem(rect.x(), rect.y(), rect.width(), rect.height())
-                self.scene.addItem(rect_item)
-                self.room_rects.append((rect.x(), rect.y(), rect.width(), rect.height()))
-                self.adding_rect = False
-                self.rect_start = None
-                self.save_room_design()
-        elif self.adding_text:
-            text, ok = QInputDialog.getText(self, "Add Text", "Enter text:")
+        if self.adding_mode == 'text' and event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            text, ok = QInputDialog.getText(self, "Add Label", "Enter text for the label:")
             if ok and text:
+                pos = self.view.mapToScene(event.pos())
                 text_item = QGraphicsTextItem(text)
-                text_item.setPos(pos.x(), pos.y())
+                text_item.setDefaultTextColor(QColor("#34495e"))
+                text_item.setFont(QFont("Arial", 14, QFont.Bold))
+                text_item.setPos(pos)
                 text_item.setFlags(QGraphicsTextItem.ItemIsMovable | QGraphicsTextItem.ItemIsSelectable)
-                text_item.setAcceptHoverEvents(True)
-                text_item.setData(0, "room_text")
+                text_item.setZValue(0)
                 self.scene.addItem(text_item)
-                self.room_texts.append((pos.x(), pos.y(), text))
-                self.save_room_design()
-            self.adding_text = False
+            self.set_adding_mode(None, None)
+            for btn in self.findChildren(QPushButton):
+                if isinstance(btn, QPushButton) and btn.isCheckable():
+                    btn.setChecked(False)
+            return True
+        
+        elif self.adding_mode == 'rect':
+            if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                self.drawing_start_pos = self.view.mapToScene(event.pos())
+                rect = QRectF(self.drawing_start_pos, self.drawing_start_pos)
+                self.current_drawing_item = ResizableRectItem(rect.x(), rect.y(), rect.width(), rect.height())
+                self.current_drawing_item.setPen(QPen(QColor("#3498db"), 2, Qt.DashLine))
+                self.scene.addItem(self.current_drawing_item)
+                return True
+            elif event.type() == QEvent.MouseMove and self.drawing_start_pos:
+                current_pos = self.view.mapToScene(event.pos())
+                rect = QRectF(self.drawing_start_pos, current_pos).normalized()
+                self.current_drawing_item.setRect(rect)
+                return True
+            elif event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self.current_drawing_item:
+                self.current_drawing_item.setPen(QPen(QColor("#3498db"), 2))
+                self.current_drawing_item = None
+                self.drawing_start_pos = None
+                self.set_adding_mode(None, None)
+                for btn in self.findChildren(QPushButton):
+                    if isinstance(btn, QPushButton) and btn.isCheckable():
+                        btn.setChecked(False)
+                return True
+
+        return super().eventFilter(source, event)
+
+    def closeEvent(self, event):
+        reply = QMessageBox.question(self, 'Save Changes', 
+                                     "Do you want to save the layout changes before closing?",
+                                     QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+                                     QMessageBox.Cancel)
+        if reply == QMessageBox.Yes:
+            self.save_design()
+            event.accept()
+        elif reply == QMessageBox.No:
+            event.accept()
         else:
-            QGraphicsView.mousePressEvent(self.view, event)
-
-    def remove_room_item(self, item):
-        if hasattr(item, 'data') and item.data(0) == "room_rect":
-            x, y, w, h = item.rect().x(), item.rect().y(), item.rect().width(), item.rect().height()
-            self.room_rects = [r for r in self.room_rects if not (abs(r[0]-x)<2 and abs(r[1]-y)<2 and abs(r[2]-w)<2 and abs(r[3]-h)<2)]
-        elif hasattr(item, 'data') and item.data(0) == "room_text":
-            x, y = item.pos().x(), item.pos().y()
-            text = item.toPlainText()
-            self.room_texts = [t for t in self.room_texts if not (abs(t[0]-x)<2 and abs(t[1]-y)<2 and t[2]==text)]
-
-    def save_room_design(self):
-        rects = []
-        texts = []
-        for item in self.scene.items():
-            if isinstance(item, ResizableRectItem) and item.data(0) == "room_rect":
-                r = item.rect()
-                rects.append((r.x(), r.y(), r.width(), r.height()))
-            elif isinstance(item, QGraphicsTextItem) and item.data(0) == "room_text":
-                texts.append((item.pos().x(), item.pos().y(), item.toPlainText()))
-        data = {"rects": rects, "texts": texts}
-        with open(self.room_design_file, "w", encoding="utf-8") as f:
-            json.dump(data, f)
-
-    def load_room_design(self):
-        if os.path.exists(self.room_design_file):
-            with open(self.room_design_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            self.room_rects = data.get("rects", [])
-            self.room_texts = data.get("texts", [])
-            for x, y, w, h in self.room_rects:
-                rect_item = ResizableRectItem(x, y, w, h)
-                self.scene.addItem(rect_item)
-            for x, y, text in self.room_texts:
-                text_item = QGraphicsTextItem(text)
-                text_item.setPos(x, y)
-                text_item.setFlags(QGraphicsTextItem.ItemIsMovable | QGraphicsTextItem.ItemIsSelectable)
-                text_item.setAcceptHoverEvents(True)
-                text_item.setData(0, "room_text")
-                self.scene.addItem(text_item)
-
-    def clear_room_design(self):
-        # Remove all rectangles and texts from the scene
-        for item in list(self.scene.items()):
-            if (hasattr(item, 'data') and item.data(0) in ["room_rect", "room_text"]):
-                self.scene.removeItem(item)
-        self.room_rects = []
-        self.room_texts = []
-        # Remove from file
-        if os.path.exists(self.room_design_file):
-            os.remove(self.room_design_file) 
+            event.ignore() 

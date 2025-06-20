@@ -1,0 +1,32 @@
+{
+    "positions": {
+        "-OSPglFe4TuVIB1_Qt0C": {
+            "x": 400.0,
+            "y": -80.0
+        },
+        "-ONjAXPcz_e2XhqUAA8K": {
+            "x": 620.0,
+            "y": -85.0
+        },
+        "-ONjADvatlVw0BdLfYB-": {
+            "x": 160.0,
+            "y": -80.0
+        }
+    },
+    "rects": [
+        {
+            "x": 102.0,
+            "y": -236.0,
+            "w": 775.0,
+            "h": 386.0
+        }
+    ],
+    "texts": [
+        {
+            "x": 386.0,
+            "y": -287.0,
+            "text": "Main Warehouse"
+        }
+    ],
+    "background_color": "#fff1edb3"
+}

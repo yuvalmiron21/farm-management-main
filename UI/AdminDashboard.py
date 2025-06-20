@@ -126,24 +126,6 @@ class AdminDashboard(QWidget):
         self.setWindowTitle("Admin Dashboard")
         self.setGeometry(100, 100, 1200, 800)
         
-        # Initialize Firebase if not already initialized
-        try:
-            if not firebase_admin._apps:
-                cred_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'db', 'farm-management-FireBase_credentials.json')
-                print(f"Looking for credentials at: {cred_path}")
-                if not os.path.exists(cred_path):
-                    print(f"Error: Credentials file not found at {cred_path}")
-                    raise FileNotFoundError(f"Credentials file not found at {cred_path}")
-                
-                cred = credentials.Certificate(cred_path)
-                firebase_admin.initialize_app(cred, {
-                    'databaseURL': 'https://farm-management-4518e-default-rtdb.firebaseio.com/'
-                })
-                print("Firebase initialized successfully")
-        except Exception as e:
-            print(f"Error initializing Firebase: {str(e)}")
-            QMessageBox.critical(self, "Error", f"Failed to initialize Firebase: {str(e)}")
-        
         # Create main layout with scroll area
         main_layout = QVBoxLayout(self)
         scroll = QScrollArea()
@@ -201,68 +183,81 @@ class AdminDashboard(QWidget):
         
         scroll_layout.addLayout(charts_layout)
         
-        # Move forecast cards section here (before activity)
-        # Filters UI
-        filter_frame = QFrame()
-        filter_frame.setStyleSheet("""
-            QFrame {
-                background: white;
+        # --- Filters Section ---
+        filter_group = QGroupBox("📊 Filters")
+        filter_group.setObjectName("filterGroup")
+        filter_group.setStyleSheet("""
+            QGroupBox#filterGroup {
+                background-color: #ffffff;
+                border: 1px solid #e0e6ed;
                 border-radius: 12px;
-                padding: 15px;
-                margin: 10px 0;
-                border: 1px solid #e0e0e0;
+                font-size: 16px;
+                font-weight: bold;
+                color: #34495e;
+                margin-top: 20px;
+                padding: 20px;
+                padding-top: 35px; /* Space for the title */
             }
-            QComboBox, QLabel, QDateEdit {
-                font-size: 11px;
+            QGroupBox#filterGroup::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 5px 15px;
+                margin-left: 15px;
+                background-color: #3498db;
+                border-radius: 8px;
+                color: white;
             }
-            QComboBox {
-                border: 1px solid #e0e0e0;
+            QLabel#filterLabel {
+                font-size: 12px;
+                font-weight: bold;
+                color: #566573;
+            }
+            QComboBox, QDateEdit {
+                border: 1px solid #dcdfe6;
                 border-radius: 6px;
-                padding: 5px 10px;
-                min-width: 120px;
-                background: white;
+                padding: 8px 12px;
+                min-width: 140px;
+                background-color: #fdfdfd;
+                font-size: 12px;
+                color: #333;
             }
-            QComboBox:hover {
-                border-color: #2196F3;
+            QComboBox:hover, QDateEdit:hover {
+                border-color: #3498db;
             }
             QComboBox::drop-down {
-                border: none;
-                width: 20px;
-            }
-            QComboBox::down-arrow {
-                image: url(down_arrow.png);
-                width: 12px;
-                height: 12px;
-            }
-            QLabel {
-                color: #666;
-                font-size: 11px;
-            }
-            QDateEdit {
-                border: 1px solid #e0e0e0;
-                border-radius: 6px;
-                padding: 5px 10px;
-                background: white;
-                font-size: 11px;
-            }
-            QDateEdit:hover {
-                border-color: #2196F3;
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 25px;
+                border-left-width: 1px;
+                border-left-color: #dcdfe6;
+                border-left-style: solid;
+                border-top-right-radius: 6px;
+                border-bottom-right-radius: 6px;
             }
         """)
-        filter_layout = QHBoxLayout(filter_frame)
+        filter_layout = QHBoxLayout(filter_group)
         filter_layout.setSpacing(15)
-        filter_layout.setContentsMargins(15, 10, 15, 10)
+        filter_layout.setAlignment(Qt.AlignLeft)
+
+        # Helper to create styled filter widgets
+        def create_filter_widget(icon, text, widget):
+            item_layout = QHBoxLayout()
+            item_layout.setSpacing(8)
+            
+            label = QLabel(f"{icon} {text}")
+            label.setObjectName("filterLabel")
+            item_layout.addWidget(label)
+            item_layout.addWidget(widget)
+            
+            # Use a container widget to hold the layout
+            container = QWidget()
+            container.setLayout(item_layout)
+            return container
 
         # Time range filter
         self.time_range_combo = QComboBox()
-        self.time_range_combo.addItems([
-            'Last 4 Weeks',
-            'Last 3 Months',
-            'Last Year',
-            'Custom Range'
-        ])
-        filter_layout.addWidget(QLabel('Time Range:'))
-        filter_layout.addWidget(self.time_range_combo)
+        self.time_range_combo.addItems(['Last 4 Weeks', 'Last 3 Months', 'Last Year', 'Custom Range'])
+        filter_layout.addWidget(create_filter_widget("🕒", "Time Range:", self.time_range_combo))
 
         # Customer filter
         customer_name_map = self.get_customer_name_map()
@@ -270,49 +265,48 @@ class AdminDashboard(QWidget):
         self.customer_combo.addItem('All Customers', None)
         for cid, name in customer_name_map.items():
             self.customer_combo.addItem(name, cid)
-        filter_layout.addWidget(QLabel('Customer:'))
-        filter_layout.addWidget(self.customer_combo)
-
+        filter_layout.addWidget(create_filter_widget("👤", "Customer:", self.customer_combo))
+        
         # Status filter
         _, statuses = get_unique_customers_and_statuses()
         self.status_combo = QComboBox()
         self.status_combo.addItem('All Statuses')
         self.status_combo.addItems([str(s) for s in statuses])
-        filter_layout.addWidget(QLabel('Status:'))
-        filter_layout.addWidget(self.status_combo)
+        filter_layout.addWidget(create_filter_widget("🏷️", "Status:", self.status_combo))
 
-        # Custom date range widgets (hidden by default)
+        # Custom date range widgets (initially hidden)
         self.start_date_edit = QDateEdit()
         self.start_date_edit.setCalendarPopup(True)
         self.start_date_edit.setDate(QDate.currentDate().addMonths(-1))
         self.end_date_edit = QDateEdit()
         self.end_date_edit.setCalendarPopup(True)
         self.end_date_edit.setDate(QDate.currentDate())
-        filter_layout.addWidget(QLabel('From:'))
-        filter_layout.addWidget(self.start_date_edit)
-        filter_layout.addWidget(QLabel('To:'))
-        filter_layout.addWidget(self.end_date_edit)
-        self.start_date_edit.hide()
-        self.end_date_edit.hide()
+        
+        self.from_widget = create_filter_widget("➡️", "From:", self.start_date_edit)
+        self.to_widget = create_filter_widget("⬅️", "To:", self.end_date_edit)
+        filter_layout.addWidget(self.from_widget)
+        filter_layout.addWidget(self.to_widget)
+        self.from_widget.hide()
+        self.to_widget.hide()
 
-        scroll_layout.addWidget(filter_frame)
-
-        # Product filter (if product_id exists)
+        # Product filter
         product_name_map = self.get_product_name_map()
         self.product_combo = QComboBox()
         self.product_combo.addItem('All Products', None)
         for pid, name in product_name_map.items():
             self.product_combo.addItem(name, pid)
-        filter_layout.addWidget(QLabel('Product:'))
-        filter_layout.addWidget(self.product_combo)
+        filter_layout.addWidget(create_filter_widget("🍄", "Product:", self.product_combo))
         self.product_combo.currentIndexChanged.connect(self.update_prediction_section)
+        
+        filter_layout.addStretch() # Push model selector to the right
 
         # Forecast model selector
         self.model_combo = QComboBox()
         self.model_combo.addItems(["Prophet", "ARIMA"])
-        filter_layout.addWidget(QLabel("Forecast Model:"))
-        filter_layout.addWidget(self.model_combo)
+        filter_layout.addWidget(create_filter_widget("🤖", "Model:", self.model_combo))
         self.model_combo.currentIndexChanged.connect(self.update_prediction_section)
+
+        scroll_layout.addWidget(filter_group)
 
         # Ensure explanation and prediction_label are initialized before use
         self.explanation = QLabel()
@@ -395,12 +389,9 @@ class AdminDashboard(QWidget):
         self.update_dashboard_data()
 
     def toggle_custom_date_range(self):
-        if self.time_range_combo.currentText() == 'Custom Range':
-            self.start_date_edit.show()
-            self.end_date_edit.show()
-        else:
-            self.start_date_edit.hide()
-            self.end_date_edit.hide()
+        is_custom = self.time_range_combo.currentText() == 'Custom Range'
+        self.from_widget.setVisible(is_custom)
+        self.to_widget.setVisible(is_custom)
 
     def update_prediction_section(self):
         # Get filter values
@@ -427,46 +418,35 @@ class AdminDashboard(QWidget):
             start_date = None
         # Get and filter data
         df = get_order_history()
-        # --- מיפוי שמות שדות ---
-        rename_map = {
-            'OrderDate': 'date',
-            'CustomerID': 'customer_id',
-            'ProductID': 'product_id',
-            'TotalAmount': 'amount',
-            'Cost': 'cost',
-            'Status': 'status',
-        }
-        for old, new in rename_map.items():
-            if old in df.columns:
-                df[new] = df[old]
-        # --- המרת תאריכים וסכומים ---
-        if 'date' in df.columns:
-            df['date'] = pd.to_datetime(df['date'], errors='coerce')
-        if 'amount' in df.columns:
-            df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0)
-        if 'cost' in df.columns:
-            df['cost'] = pd.to_numeric(df['cost'], errors='coerce').fillna(0)
-        if 'customer_id' in df.columns:
-            df['customer_id'] = df['customer_id'].astype(str)
-        if 'product_id' in df.columns:
-            df['product_id'] = df['product_id'].astype(str)
-        if 'status' in df.columns:
-            df['status'] = df['status'].astype(str)
+        
+        # --- דיבאג ראשוני: בדיקת ה-DataFrame הגולמי ---
+        print("--- Initial DataFrame from get_order_history() ---")
+        if df.empty:
+            print("DataFrame is EMPTY.")
+        else:
+            print(f"DataFrame has {len(df)} rows.")
+            print(df.head())
+            print("Columns:", df.columns)
+            print("Data types:\n", df.dtypes)
+        print("-------------------------------------------------")
+
         # --- סינון לפי פילטרים ---
         df_filtered = df.copy()
-        if customer:
-            df_filtered = df_filtered[df_filtered['customer_id'] == customer]
-        if status:
-            df_filtered = df_filtered[df_filtered['status'] == status]
-        if start_date and end_date and 'date' in df_filtered.columns:
-            df_filtered = df_filtered[(df_filtered['date'] >= pd.to_datetime(start_date)) & (df_filtered['date'] <= pd.to_datetime(end_date))]
+        if not df_filtered.empty:
+            if customer:
+                df_filtered = df_filtered[df_filtered['customer_id'] == customer]
+            if status:
+                df_filtered = df_filtered[df_filtered['status'] == status]
+            if start_date and end_date and 'date' in df_filtered.columns:
+                df_filtered = df_filtered[(df_filtered['date'] >= pd.to_datetime(start_date)) & (df_filtered['date'] <= pd.to_datetime(end_date))]
+        
         # --- דיבאג: כמה דאטה נשאר? ---
         print(f"Filtered orders: {len(df_filtered)} rows (after filters)")
-        print(df_filtered.head())
-        print(df_filtered.describe(include='all'))
-        # Add profit column if possible
+        
+        # Add profit column if possible (assuming 'cost' might come from somewhere else in the future)
         if 'amount' in df_filtered.columns and 'cost' in df_filtered.columns:
             df_filtered['profit'] = df_filtered['amount'] - df_filtered['cost']
+        
         # Explanation
         self.explanation.setText("""
 <b>ML-based Forecasts for Next Period</b><br>
@@ -800,97 +780,129 @@ All predictions below use Facebook Prophet (time series ML model) on your filter
             widget = item.widget()
             if widget:
                 widget.setParent(None)
-        # Define new ML forecast cards
+
+        # Define new ML forecast cards with updated emojis and colors
         cards = [
-            ("📦", "Order Forecast", order_text, order_spark, "#2196F3", "Predicted order amount for next week", order_fallback_msg),
-            ("💰", "Revenue Forecast", revenue_text, revenue_spark, "#4CAF50", "Predicted revenue for next week", revenue_fallback_msg),
-            ("🔢", "Total Orders Forecast", orders_count_text, orders_count_spark, "#FF9800", "Predicted number of orders for next week", orders_count_fallback_msg),
-            ("🔁", "Returning Customers", returning_text, returning_spark, "#9C27B0", "Predicted number of returning customers", returning_fallback_msg),
-            ("📦", "Product Forecast", product_text, product_spark, "#E91E63", "Predicted order amount for the selected product", product_fallback_msg),
-            ("🆕", "New Customers Forecast", new_customers_text, new_customers_spark, "#00BCD4", "Predicted number of new customers", new_customers_fallback_msg),
+            ("📈", "Order Forecast", order_text, order_spark, "#3498db", "Predicted total order value for next week.", order_fallback_msg),
+            ("💰", "Revenue Forecast", revenue_text, revenue_spark, "#2ecc71", "Predicted total revenue for next week.", revenue_fallback_msg),
+            ("📦", "Total Orders Forecast", orders_count_text, orders_count_spark, "#f39c12", "Predicted number of distinct orders for next week.", orders_count_fallback_msg),
+            ("👥", "Returning Customers", returning_text, returning_spark, "#9b59b6", "Predicted number of customers who have ordered before.", returning_fallback_msg),
+            ("🍄", "Product Forecast", product_text, product_spark, "#e74c3c", "Predicted order value for the selected product.", product_fallback_msg),
+            ("✨", "New Customers", new_customers_text, new_customers_spark, "#1abc9c", "Predicted number of customers making their first order.", new_customers_fallback_msg),
         ]
-        # Create cards with info buttons and interactivity
+        
+        # Create new, redesigned cards
         self.card_widgets = []
-        for i, (icon, title, value, spark, color, desc, info_text) in enumerate(cards):
+        for i, (icon, title, value, spark, color, desc, fallback_msg) in enumerate(cards):
             card = QFrame()
-            card.setStyleSheet(f'''
-                QFrame {{
-                    background: white;
+            card.setObjectName("forecastCard")
+            card.setCursor(QCursor(Qt.PointingHandCursor))
+            card.setStyleSheet(f"""
+                #forecastCard {{
+                    background-color: #ffffff;
                     border-radius: 12px;
-                    border: 1px solid {color};
-                    padding: 15px;
-                    margin: 8px;
+                    border: 1px solid #e9eef2;
+                    padding: 20px;
+                    margin: 10px;
                 }}
-                QFrame:hover {{
-                    border-width: 2px;
-                    background: #fafafa;
+                #forecastCard:hover {{
+                    border: 1px solid {color};
                 }}
                 QLabel {{
-                    color: #333;
+                    background-color: transparent;
+                    border: none;
                 }}
                 QToolButton {{
                     border: none;
-                    color: {color};
+                    background-color: transparent;
+                    color: #95a5a6;
                 }}
                 QToolButton:hover {{
-                    color: #666;
+                    color: {color};
                 }}
-            ''')
-            vbox = QVBoxLayout(card)
-            vbox.setSpacing(8)
-            vbox.setContentsMargins(12, 12, 12, 12)
+            """)
 
-            # Header with icon and title
+            vbox = QVBoxLayout(card)
+            vbox.setSpacing(10)
+            vbox.setContentsMargins(0, 0, 0, 0)
+
+            # --- Header ---
             header = QHBoxLayout()
+            header.setSpacing(12)
             icon_label = QLabel(icon)
-            icon_label.setStyleSheet(f"font-size: 24px; color: {color};")
+            icon_label.setStyleSheet(f"font-size: 28px; color: {color};")
+            
+            title_layout = QVBoxLayout()
+            title_layout.setSpacing(0)
             title_label = QLabel(title)
-            title_label.setStyleSheet(f"font-size: 14px; color: {color}; font-weight: bold;")
+            title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50;")
+            desc_label = QLabel(desc)
+            desc_label.setWordWrap(True)
+            desc_label.setStyleSheet("font-size: 11px; color: #7f8c8d;")
+            title_layout.addWidget(title_label)
+            title_layout.addWidget(desc_label)
+
             info_btn = QToolButton()
-            info_btn.setIcon(info_btn.style().standardIcon(QStyle.SP_MessageBoxInformation))
-            info_btn.setToolTip(f"Click for more info")
-            def make_info_callback(text):
-                return lambda: QMessageBox.information(self, f"{title} Info", text)
-            info_btn.clicked.connect(make_info_callback(info_text))
-            header.addWidget(icon_label)
-            header.addWidget(title_label)
+            info_btn.setIcon(self.style().standardIcon(QStyle.SP_MessageBoxInformation))
+            info_btn.setCursor(QCursor(Qt.PointingHandCursor))
+            info_text = fallback_msg if fallback_msg else "This forecast is generated using an ML model based on historical data."
+            info_btn.setToolTip(f"Click for more info.")
+            
+            def make_info_callback(text, t):
+                return lambda: QMessageBox.information(self, f"{t} Info", text)
+            info_btn.clicked.connect(make_info_callback(info_text, title))
+
+            header.addWidget(icon_label, alignment=Qt.AlignTop)
+            header.addLayout(title_layout)
             header.addStretch()
-            header.addWidget(info_btn)
+            header.addWidget(info_btn, alignment=Qt.AlignTop)
             vbox.addLayout(header)
 
-            # Value
+            vbox.addStretch(1)
+
+            # --- Value ---
             value_label = QLabel(value)
-            value_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #333;")
+            value_label.setAlignment(Qt.AlignCenter)
+            value_label.setStyleSheet("font-size: 26px; font-weight: bold; color: #34495e; margin-top: 5px;")
+            value_label.setWordWrap(True)
             vbox.addWidget(value_label)
-
-            # Forecast range/uncertainty indication
-            if '(' in value and 'range:' in value:
+            
+            # --- High Uncertainty Warning ---
+            if 'range:' in value:
                 import re
-                match = re.search(r'range: ₪([\d,]+) - ₪([\d,]+)', value)
+                match = re.search(r'range:.*?([\d,.-]+).*?([\d,.-]+)', value)
                 if match:
-                    lower = int(match.group(1).replace(',', ''))
-                    upper = int(match.group(2).replace(',', ''))
-                    if upper - lower > 0.5 * max(1, lower):
-                        # High uncertainty, show warning
-                        warn_label = QLabel("⚠️ High uncertainty in forecast")
-                        warn_label.setStyleSheet("font-size: 11px; color: #e67e22; font-weight: bold;")
-                        vbox.addWidget(warn_label)
+                    try:
+                        lower = float(match.group(1).replace(',', ''))
+                        upper = float(match.group(2).replace(',', ''))
+                        if upper > 0 and (upper - lower) / upper > 0.75: # High uncertainty if range is >75% of upper bound
+                            warn_label = QLabel("⚠️ High uncertainty in forecast")
+                            warn_label.setStyleSheet("font-size: 11px; color: #e67e22; font-weight: bold;")
+                            warn_label.setAlignment(Qt.AlignCenter)
+                            vbox.addWidget(warn_label)
+                    except (ValueError, IndexError):
+                        pass # Ignore if parsing fails
 
-            # Sparkline (if exists)
+            vbox.addStretch(1)
+
+            # --- Sparkline ---
             if spark is not None:
-                spark.setStyleSheet("border: none; background: transparent;")
-                vbox.addWidget(spark)
+                spark_container = QWidget()
+                spark_layout = QVBoxLayout(spark_container)
+                spark_layout.setContentsMargins(0,5,0,5)
+                spark_layout.addWidget(spark, alignment=Qt.AlignCenter)
+                vbox.addWidget(spark_container)
+            else:
+                placeholder = QLabel() # Placeholder to maintain height
+                placeholder.setMinimumHeight(30)
+                vbox.addWidget(placeholder)
 
-            # Description
-            desc_label = QLabel(desc)
-            desc_label.setStyleSheet("font-size: 11px; color: #666;")
-            vbox.addWidget(desc_label)
-
-            # Short explanation
-            expl_label = QLabel(info_text)
-            expl_label.setWordWrap(True)
-            expl_label.setStyleSheet("font-size: 10px; color: #888; margin-top: 2px;")
-            vbox.addWidget(expl_label)
+            # --- Fallback/Info Message ---
+            if fallback_msg:
+                fallback_label = QLabel(f"ℹ️ {fallback_msg}")
+                fallback_label.setWordWrap(True)
+                fallback_label.setStyleSheet("font-size: 10px; color: #7f8c8d; border-top: 1px solid #f2f2f2; padding-top: 8px; margin-top: 8px;")
+                vbox.addWidget(fallback_label)
 
             self.forecast_cards_layout.addWidget(card, i // 3, i % 3)
             self.card_widgets.append(card)
