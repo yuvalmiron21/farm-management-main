@@ -14,7 +14,14 @@ import random
 from requests.exceptions import ConnectionError, Timeout
 from UI.retry_utils import retry_with_backoff
 
-load_dotenv()
+# Find the project root and load .env from there
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+dotenv_path = os.path.join(project_root, '.env')
+if os.path.exists(dotenv_path):
+    load_dotenv(dotenv_path=dotenv_path)
+    print("✅ .env file loaded successfully.")
+else:
+    print("⚠️ .env file not found. Please ensure it is in the project root.")
 
 class ChatMessage(QFrame):
     def __init__(self, text, is_user=True, parent=None):
@@ -25,9 +32,9 @@ class ChatMessage(QFrame):
         layout.setSpacing(0)
         bubble = QLabel(text)
         bubble.setWordWrap(True)
-        bubble.setFont(QFont("Segoe UI", 11))
         bubble.setTextInteractionFlags(Qt.TextSelectableByMouse)
         if is_user:
+            bubble.setFont(QFont("Segoe UI", 11))
             bubble.setStyleSheet("""
                 QLabel {
                     background-color: #dcf8c6;
@@ -42,16 +49,17 @@ class ChatMessage(QFrame):
             layout.addStretch()
             layout.addWidget(bubble)
         else:
+            bubble.setFont(QFont("Segoe UI", 8))
             bubble.setStyleSheet("""
                 QLabel {
-                    background-color: #fff;
-                    color: #222;
-                    border-radius: 16px;
-                    padding: 10px 16px;
+                    background-color: #ffffff;
+                    color: #333;
+                    border-radius: 12px;
+                    padding: 8px 12px;
                     margin-right: 40px;
                     margin-left: 0px;
-                    max-width: 350px;
-                    border: 1px solid #ececec;
+                    max-width: 340px;
+                    border: 1px solid #f0f0f0;
                 }
             """)
             layout.addWidget(bubble)
@@ -152,6 +160,21 @@ class ChatGUI(QWidget):
         self.chat_area.setWidget(self.chat_container)
         main_layout.addWidget(self.chat_area)
 
+        # Status bar
+        self.status_label = QLabel("Thinking...")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setFont(QFont("Segoe UI", 10))
+        self.status_label.setStyleSheet("""
+            QLabel {
+                background-color: #f0f0f0;
+                color: #555;
+                padding: 4px;
+                border-top: 1px solid #ddd;
+            }
+        """)
+        self.status_label.hide()
+        main_layout.addWidget(self.status_label)
+
         # Input area (fixed at bottom)
         input_frame = QFrame()
         input_frame.setStyleSheet("background: #f7f7f7; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px;")
@@ -174,10 +197,10 @@ class ChatGUI(QWidget):
         self.message_input.returnPressed.connect(self.send_message)
         input_layout.addWidget(self.message_input)
 
-        send_button = QPushButton()
-        send_button.setIcon(QIcon.fromTheme("send"))
-        send_button.setText("➤")
-        send_button.setStyleSheet("""
+        self.send_button = QPushButton()
+        self.send_button.setIcon(QIcon.fromTheme("send"))
+        self.send_button.setText("➤")
+        self.send_button.setStyleSheet("""
             QPushButton {
                 background-color: #25d366;
                 color: white;
@@ -191,9 +214,9 @@ class ChatGUI(QWidget):
                 background-color: #128c7e;
             }
         """)
-        send_button.setCursor(Qt.PointingHandCursor)
-        send_button.clicked.connect(self.send_message)
-        input_layout.addWidget(send_button)
+        self.send_button.setCursor(Qt.PointingHandCursor)
+        self.send_button.clicked.connect(self.send_message)
+        input_layout.addWidget(self.send_button)
 
         main_layout.addWidget(input_frame)
 
@@ -209,13 +232,17 @@ class ChatGUI(QWidget):
 
     def initialize_gemini(self):
         try:
-            genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
-            print('Available Gemini models:')
-            for model in genai.list_models():
-                print(model)
+            api_key = os.getenv('GEMINI_API_KEY')
+            if not api_key:
+                raise ValueError("GEMINI_API_KEY not found or is empty. Please check your .env file.")
+            
+            genai.configure(api_key=api_key)
             self.model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
+            print("✅ Gemini initialized successfully.")
         except Exception as e:
-            self.add_message("Error initializing AI: " + str(e), False)
+            error_message = f"Error initializing AI: {str(e)}"
+            print(f"🚨 {error_message}")
+            self.add_message(error_message, False)
 
     def add_message(self, text, is_user=True):
         message = ChatMessage(text, is_user)
@@ -226,6 +253,37 @@ class ChatGUI(QWidget):
         )
 
     @retry_with_backoff
+    def get_summarized_farm_context(self):
+        """Fetches a summarized context of the farm instead of the whole database."""
+        try:
+            summary_parts = []
+            
+            # Beds summary
+            beds = db.reference('GrowingBed').get() or {}
+            total_beds = len(beds)
+            active_beds = sum(1 for b in beds.values() if b.get('CurrentGrowthStage', 'Empty') != 'Empty')
+            summary_parts.append(f"- Beds: {active_beds}/{total_beds} active.")
+
+            # Orders summary
+            orders = db.reference('Order').get() or {}
+            pending_orders = sum(1 for o in orders.values() if o.get('Status', 'Completed') == 'Pending')
+            summary_parts.append(f"- Orders: {pending_orders} pending.")
+
+            # Customer summary
+            customers = db.reference('Customer').get() or {}
+            summary_parts.append(f"- Customers: {len(customers)} total.")
+
+            # Alerts summary
+            warehouse = db.reference('Warehouse').get() or {}
+            stock_alerts = [item.get('Name') for item in warehouse.values() if float(item.get('Stock', 999)) < 10]
+            if stock_alerts:
+                summary_parts.append(f"- Alerts: Critical stock for {', '.join(stock_alerts)}.")
+
+            return "Farm Status Summary:\n" + "\n".join(summary_parts)
+            
+        except Exception as e:
+            return f"Error fetching farm summary: {str(e)}"
+
     def get_farm_context(self):
         try:
             farm_data = db.reference('/').get()
@@ -237,33 +295,42 @@ class ChatGUI(QWidget):
         user_message = self.message_input.text().strip()
         if not user_message:
             return
-        self.message_input.clear()
+        
         self.add_message(user_message, True)
-        # Show processing indicator
-        self.processing_label = ChatMessage("...עיבוד...", is_user=False)
-        self.chat_layout.addWidget(self.processing_label)
-        self.chat_area.verticalScrollBar().setValue(
-            self.chat_area.verticalScrollBar().maximum()
-        )
+        self.message_input.clear()
+        
+        # Disable input and show thinking status
+        self.message_input.setEnabled(False)
+        self.send_button.setEnabled(False)
+        self.status_label.setText("🤔 Thinking...")
+        self.status_label.show()
         QApplication.processEvents()  # Force UI update
+
         try:
-            farm_context = self.get_farm_context()
-            prompt = f"""You are an AI assistant for a mushroom farm management system. \nHere is the current farm data for context:\n{farm_context}\n\nUser question: {user_message}\n\nPlease provide a helpful response based on the farm data and your knowledge of mushroom farming."""
+            # Check if Gemini model is initialized
+            if not hasattr(self, 'model'):
+                raise ValueError("AI model is not initialized. Cannot send message.")
+
+            farm_context = self.get_summarized_farm_context()
+            prompt = (
+                "You are an expert AI assistant for a mushroom farm. "
+                "You must answer in Hebrew."
+                f"Here is a summary of the current farm data for context:\n{farm_context}\n\n"
+                f"User question: {user_message}\n\nPlease provide a helpful and concise response in Hebrew."
+            )
+            
             response = self.model.generate_content(prompt)
-            # Remove processing indicator
-            self.processing_label.setParent(None)
-            self.processing_label = None
             self.add_message(response.text, False)
         except Exception as e:
-            # Remove processing indicator
-            if self.processing_label:
-                self.processing_label.setParent(None)
-                self.processing_label = None
-            error_msg = str(e)
-            if '429' in error_msg or 'quota' in error_msg.lower():
-                self.add_message("המכסה של ה-Gemini API נוצלה. נסה שוב מאוחר יותר או עבור לחשבון אחר.", False)
-            else:
-                self.add_message(f"Error: {error_msg}", False)
+            error_message = f"An error occurred: {str(e)}"
+            print(f"🚨 {error_message}")
+            self.add_message(error_message, False)
+        finally:
+            # Hide status and re-enable input
+            self.status_label.hide()
+            self.message_input.setEnabled(True)
+            self.send_button.setEnabled(True)
+            self.message_input.setFocus()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:

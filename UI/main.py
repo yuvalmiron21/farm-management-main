@@ -4,12 +4,13 @@ from PyQt5.QtWidgets import QApplication, QMessageBox
 from firebase_admin import credentials, initialize_app, db, _apps
 from LoginGUI import LoginGUI
 from Main_gui import Main_gui
+from SimpleLoadingWindow import SimpleLoadingWindow
 
 # Initialize Firebase
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(BASE_DIR)
 SERVICE_ACCOUNT_FILE = os.path.join(PARENT_DIR, "db", "farm-management-FireBase_credentials.json")
-DATABASE_URL = "https://farm-management-86035-default-rtdb.europe-west1.firebasedatabase.app/"
+DATABASE_URL = "https://mush-farm-management-default-rtdb.firebaseio.com/"
 
 def initialize_firebase():
     try:
@@ -26,14 +27,21 @@ def initialize_firebase():
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     
+    # Show initial loading window
+    initial_loading = SimpleLoadingWindow()
+    initial_loading.show()
+    
     if not initialize_firebase():
+        initial_loading.close()
         sys.exit(1)
     
     try:
-        # תמיד פותח את מסך ההתחברות
+        # Close initial loading and show login
+        initial_loading.close()
         login_window = LoginGUI()
         login_window.show()
         sys.exit(app.exec_())
     except Exception as e:
+        initial_loading.close()
         QMessageBox.critical(None, "Error", f"Application error: {str(e)}")
         sys.exit(1)

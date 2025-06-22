@@ -8,7 +8,7 @@ from db.cache_manager import CacheManager
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(BASE_DIR)
 SERVICE_ACCOUNT_FILE = os.path.join(PARENT_DIR, "db", "farm-management-FireBase_credentials.json")
-DATABASE_URL = "https://farm-management-86035-default-rtdb.europe-west1.firebasedatabase.app/"
+DATABASE_URL = "https://mush-farm-management-default-rtdb.firebaseio.com/"
 
 # Initialize Firebase only if not already initialized
 if not firebase_admin._apps:

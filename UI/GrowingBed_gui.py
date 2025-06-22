@@ -198,15 +198,16 @@ class GrowingBedGUI(QWidget):
             if isinstance(beds_data, dict):
                 for key, bed_data in beds_data.items():
                     if isinstance(bed_data, dict):
+                        # Map Firebase fields to table fields
                         bed_info = {
-                            'id': bed_data.get('ID', ''),
-                            'name': bed_data.get('Name', ''),
-                            'location': bed_data.get('Location', ''),
-                            'size': bed_data.get('Size', 0),
-                            'status': bed_data.get('Status', ''),
-                            'crop_type': bed_data.get('CropType', ''),
-                            'planting_date': bed_data.get('PlantingDate', ''),
-                            'harvest_date': bed_data.get('HarvestDate', '')
+                            'id': key, # Use Firebase key as ID
+                            'name': bed_data.get('Name', f"Bed {key.replace('BED', '')}"),
+                            'location': bed_data.get('Location', 'N/A'),
+                            'size': bed_data.get('Size', 0.0), # Assuming size is stored directly
+                            'status': bed_data.get('CurrentGrowthStage', 'Unknown'), # Map from CurrentGrowthStage
+                            'crop_type': bed_data.get('MushroomType', ''), # Map from MushroomType
+                            'planting_date': bed_data.get('Start_date', ''), # Map from Start_date
+                            'harvest_date': bed_data.get('HarvestDate', '') # Assuming this field exists
                         }
                         self.all_beds.append(bed_info)
                         self.filtered_beds.append(bed_info)
@@ -245,14 +246,21 @@ class GrowingBedGUI(QWidget):
             # Color-code the status
             if col == 4:  # Status column
                 status_colors = {
-                    "Active": "#2ecc71",        # Green
-                    "Available": "#2ecc71",    # Green
-                    "Inactive": "#e74c3c",     # Red
-                    "Occupied": "#3498db",     # Blue
-                    "Maintenance": "#f39c12"    # Orange
+                    "Active": "#2ecc71",
+                    "Available": "#2ecc71",
+                    "Inactive": "#e74c3c",
+                    "Maintenance": "#f39c12",
+                    "Spawn Run": "#3498db",
+                    "Pinning": "#9b59b6",
+                    "Fruiting": "#1abc9c",
+                    "Harvesting": "#27ae60",
+                    "Empty": "#bdc3c7",
+                    "Unknown": "#7f8c8d"
                 }
-                color = status_colors.get(item_text, "#95a5a6")
-                item.setBackground(QColor(color))
+                
+                status_text = item.text()
+                color_hex = status_colors.get(status_text, "#7f8c8d")
+                item.setBackground(QColor(color_hex))
                 item.setForeground(QColor("white"))
                 item.setFont(QFont("Arial", weight=QFont.Bold))
             

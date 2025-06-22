@@ -9,7 +9,7 @@ from UI.retry_utils import retry_with_backoff
 
 # Initialize Firebase
 SERVICE_ACCOUNT_FILE = "farm-management-FireBase_credentials.json"  # עדכון שם הקובץ
-DATABASE_URL = "https://farm-management-86035-default-rtdb.europe-west1.firebasedatabase.app/"
+DATABASE_URL = "https://mush-farm-management-default-rtdb.firebaseio.com/"
 cred = credentials.Certificate(SERVICE_ACCOUNT_FILE)
 initialize_app(cred, {"databaseURL": DATABASE_URL})
 

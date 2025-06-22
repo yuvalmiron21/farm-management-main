@@ -1,12 +1,13 @@
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox,
-    QHBoxLayout, QToolButton, QFrame, QSizePolicy
+    QHBoxLayout, QToolButton, QFrame, QSizePolicy, QProgressBar
 )
 from PyQt5.QtGui import QFont, QPixmap, QMovie
 from PyQt5.QtCore import Qt, QTimer, QSize
 from Main_gui import Main_gui
 from UserDashboard import UserDashboard
 from user_management import UserManagement
+from SimpleLoadingWindow import SimpleLoadingWindow
 import os
 
 class LoginGUI(QWidget):
@@ -118,6 +119,27 @@ class LoginGUI(QWidget):
         self.loading_label.setMovie(self.loading_movie)
         self.loading_movie.finished.connect(self.loading_movie.start)
 
+        # Progress bar for login
+        self.login_progress = QProgressBar()
+        self.login_progress.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #e0e0e0;
+                border-radius: 5px;
+                text-align: center;
+                background: #f8f9fa;
+                height: 8px;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #43a047, stop:1 #66bb6a);
+                border-radius: 4px;
+            }
+        """)
+        self.login_progress.setRange(0, 100)
+        self.login_progress.setValue(0)
+        self.login_progress.hide()
+        panel_layout.addWidget(self.login_progress)
+
         # Login button
         self.login_button = QPushButton("Login")
         self.login_button.setStyleSheet("""
@@ -156,12 +178,63 @@ class LoginGUI(QWidget):
         
         if loading:
             self.loading_label.show()
+            self.login_progress.show()
             self.loading_movie.start()
             self.login_button.setText("Logging in...")
+            self.login_button.setStyleSheet("""
+                QPushButton {
+                    background: #a5d6a7;
+                    color: #e8f5e9;
+                    border: none;
+                    padding: 12px;
+                    border-radius: 10px;
+                    font-size: 14px;
+                    font-weight: bold;
+                }
+            """)
+            
+            # Animate progress bar
+            self.progress_timer = QTimer()
+            self.progress_timer.timeout.connect(self.update_login_progress)
+            self.progress_timer.start(50)  # Update every 50ms
         else:
             self.loading_label.hide()
+            self.login_progress.hide()
             self.loading_movie.stop()
             self.login_button.setText("Login")
+            self.login_button.setStyleSheet("""
+                QPushButton {
+                    background: #43a047;
+                    color: white;
+                    border: none;
+                    padding: 12px;
+                    border-radius: 10px;
+                    font-size: 14px;
+                    font-weight: bold;
+                    transition: all 0.3s ease;
+                }
+                QPushButton:hover {
+                    background: #388e3c;
+                    box-shadow: 0 4px 12px rgba(67, 160, 71, 0.3);
+                }
+                QPushButton:pressed {
+                    background: #2e7d32;
+                    transform: translateY(1px);
+                }
+                QPushButton:disabled {
+                    background: #a5d6a7;
+                    color: #e8f5e9;
+                }
+            """)
+            
+            if hasattr(self, 'progress_timer'):
+                self.progress_timer.stop()
+                
+    def update_login_progress(self):
+        """Update the login progress bar"""
+        current_value = self.login_progress.value()
+        if current_value < 90:  # Don't go to 100% until login is complete
+            self.login_progress.setValue(current_value + 2)
 
     def handle_login(self):
         username = self.username_input.text()
@@ -173,25 +246,41 @@ class LoginGUI(QWidget):
 
         self.set_loading_state(True)
         
-        # Simulate network delay
-        QTimer.singleShot(1000, lambda: self.process_login(username, password))
+        # Use a shorter delay for better UX
+        QTimer.singleShot(500, lambda: self.process_login(username, password))
 
     def process_login(self, username, password):
         success, role, message = UserManagement.authenticate_user(username, password)
         
-        self.set_loading_state(False)
+        # Complete the progress bar
+        self.login_progress.setValue(100)
+        QTimer.singleShot(200, lambda: self.set_loading_state(False))
         
         if success:
-            if role == "admin":
-                user_data = {"username": username, "role": role}
-                self.main_window = Main_gui(user_data)
-                self.main_window.show()
-            else:
-                self.user_dashboard = UserDashboard(username)
-                self.user_dashboard.show()
+            # Show loading window
+            loading_window = SimpleLoadingWindow()
+            loading_window.show()
+            
+            # Close login window
             self.close()
+            
+            # Show appropriate dashboard after a short delay
+            QTimer.singleShot(1500, lambda: self.show_dashboard(username, role, loading_window))
         else:
             QMessageBox.warning(self, "Error", message)
+            
+    def show_dashboard(self, username, role, loading_window):
+        """Show the appropriate dashboard and close loading window"""
+        if role == "admin":
+            user_data = {"username": username, "role": role}
+            self.main_window = Main_gui(user_data)
+            self.main_window.show()
+        else:
+            self.user_dashboard = UserDashboard(username)
+            self.user_dashboard.show()
+        
+        # Close loading window
+        loading_window.close()
 
     def toggle_password_visibility(self, checked):
         if checked:

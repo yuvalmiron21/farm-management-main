@@ -1,5 +1,5 @@
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 import json
 import os
@@ -23,6 +23,16 @@ class Batch:
         self.start_date = start_date
         self.room_number = room_number
         self.substrate = substrate
+
+    def to_dict(self):
+        return {
+            "mushroom_type": self.mushroom_type,
+            "iteration_id": self.iteration_id,
+            "start_date": self.start_date.isoformat() if self.start_date else None,
+            "room_number": self.room_number,
+            "substrate": self.substrate,
+            "batch_id": self.batch_id
+        }
 
     def __repr__(self):
         return (
@@ -62,6 +72,22 @@ class Log:
         self.day_hours = day_hours
         self.harvest = harvest
         self.if_bagged = if_bagged
+
+    def to_dict(self):
+        return {
+            "log_id": self.log_id,
+            "batch_id": self.batch_id,
+            "days_after_plant": self.days_after_plant,
+            "date": self.date.isoformat() if self.date else None,
+            "hour": self.hour,
+            "air_temp": self.air_temp,
+            "substrate_temp": self.substrate_temp,
+            "rh_humidity": self.rh_humidity,
+            "co2": self.co2,
+            "day_hours": self.day_hours,
+            "harvest": self.harvest,
+            "if_bagged": self.if_bagged
+        }
 
     def __repr__(self):
         return (
@@ -184,74 +210,139 @@ def convert_to_datetime(value):
 
 def run_example():
     try:
+        print("🔄 Loading data from Firebase...")
+        
+        # Initialize Firebase if not already initialized
+        try:
+            from firebase_admin import _apps, credentials, initialize_app
+            if not _apps:
+                import os
+                BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                SERVICE_ACCOUNT_FILE = os.path.join(BASE_DIR, "db", "farm-management-FireBase_credentials.json")
+                DATABASE_URL = "https://mush-farm-management-default-rtdb.firebaseio.com/"
+                
+                if os.path.exists(SERVICE_ACCOUNT_FILE):
+                    cred = credentials.Certificate(SERVICE_ACCOUNT_FILE)
+                    initialize_app(cred, {"databaseURL": DATABASE_URL})
+                    print("✅ Firebase initialized successfully")
+                else:
+                    print(f"⚠️ Firebase credentials file not found at: {SERVICE_ACCOUNT_FILE}")
+                    return [], []
+            else:
+                print("✅ Firebase already initialized")
+        except Exception as e:
+            print(f"🚨 Error initializing Firebase: {str(e)}")
+            return [], []
+        
         ref_batches = db.reference("Batches")
         batches_data = ref_batches.get()
 
         ref_logs = db.reference("Logs")
         logs_data = ref_logs.get()
 
-        print("🔥 Raw Batches Data:", batches_data)
-        print("🔥 Raw Logs Data:", logs_data)
+        # If data exists, use it
+        if batches_data and logs_data:
+            print("✅ Found existing Batches and Logs data. Processing...")
+            # Fallback to original method if GrowingBed is empty
+            
+            # Check if the data is a string and convert it
+            if isinstance(batches_data, str):
+                try:
+                    batches_data = json.loads(batches_data)
+                except json.JSONDecodeError:
+                    print("🚨 Failed to decode Batches JSON")
+                    batches_data = []
 
-        # Check if the data is a string and convert it
-        if isinstance(batches_data, str):
+            if isinstance(logs_data, str):
+                try:
+                    logs_data = json.loads(logs_data)
+                except json.JSONDecodeError:
+                    print("🚨 Failed to decode Logs JSON")
+                    logs_data = []
+            
+            if isinstance(batches_data, dict):
+                batches_data = list(batches_data.values())
+
+            if isinstance(logs_data, dict):
+                logs_data = list(logs_data.values())
+
+            df_batches = pd.DataFrame(batches_data)
+            df_logs = pd.DataFrame(logs_data)
+
+            if "Start_date" in df_batches.columns:
+                df_batches["Start_date"] = pd.to_datetime(df_batches["Start_date"])
+            if "Date" in df_logs.columns:
+                df_logs["Date"] = pd.to_datetime(df_logs["Date"])
+
+            batch_list, log_list = create_objects_from_df(df_batches, df_logs)
+            print(f"👍 Processed {len(batch_list)} batches and {len(log_list)} logs from existing data.")
+            return batch_list, log_list
+
+        # If no data, migrate from GrowingBed
+        print("🤔 No existing Batches/Logs data found. Migrating from GrowingBed...")
+        ref_growing_beds = db.reference("GrowingBed")
+        growing_beds_data = ref_growing_beds.get()
+        
+        print("🔥 Raw GrowingBed Data:", "Loaded" if growing_beds_data else "Empty")
+        
+        if not growing_beds_data or not isinstance(growing_beds_data, dict):
+             print("⚠️ No GrowingBed data to migrate. Returning empty lists.")
+             return [],[]
+
+        print("Found GrowingBed data, converting to batches and logs format...")
+        
+        batches_list = []
+        logs_list = []
+        
+        for bed_id, bed_data in growing_beds_data.items():
             try:
-                batches_data = json.loads(batches_data)  # Convert JSON string to Python object
-            except json.JSONDecodeError:
-                print("🚨 Failed to decode Batches JSON")
-                batches_data = []  # Fallback to empty list
+                batch = Batch(
+                    mushroom_type=bed_data.get("MushroomType"),
+                    iteration_id=int(''.join(filter(str.isdigit, bed_id))) if any(char.isdigit() for char in bed_id) else 0,
+                    start_date=convert_to_datetime(bed_data.get("Start_date")),
+                    room_number=int(''.join(filter(str.isdigit, bed_data.get("Location", "")))) if any(char.isdigit() for char in bed_data.get("Location", "")) else 0,
+                    substrate=float(bed_data.get("Size", "0x0").split('x')[0]) * float(bed_data.get("Size", "0x0").split('x')[1]) if 'x' in bed_data.get("Size", "0x0") else 0
+                )
+                batches_list.append(batch)
+                
+                if bed_data.get("Temperature") is not None:
+                    log = Log(
+                        batch_id=batch.batch_id,
+                        days_after_plant=0,
+                        date=convert_to_datetime(bed_data.get("LastUpdated")) or datetime.now(),
+                        hour=datetime.now().strftime("%H:%M"),
+                        air_temp=float(bed_data.get("Temperature", 0)),
+                        substrate_temp=float(bed_data.get("Temperature", 0)),
+                        rh_humidity=float(bed_data.get("Humidity", 0)),
+                        co2=float(bed_data.get("CO2Level", 0)),
+                        day_hours=12,
+                        harvest=0.0,
+                        if_bagged=False
+                    )
+                    logs_list.append(log)
+            except (ValueError, TypeError) as e:
+                print(f"⚠️ Error processing growing bed {bed_id}: {str(e)}")
+                continue
+        
+        print(f"✅ Converted {len(batches_list)} batches and {len(logs_list)} logs from GrowingBed data.")
 
-        if isinstance(logs_data, str):
+        # Upload to Firebase
+        if batches_list and logs_list:
+            print("📤 Uploading migrated data to Firebase...")
             try:
-                logs_data = json.loads(logs_data)
-            except json.JSONDecodeError:
-                print("🚨 Failed to decode Logs JSON")
-                logs_data = []
+                batches_to_upload = {f"batch_{b.batch_id}": b.to_dict() for b in batches_list}
+                logs_to_upload = {f"log_{l.log_id}": l.to_dict() for l in logs_list}
+                
+                db.reference("Batches").set(batches_to_upload)
+                db.reference("Logs").set(logs_to_upload)
+                print("✅ Successfully uploaded Batches and Logs to Firebase.")
+            except Exception as e:
+                print(f"🚨 Failed to upload migrated data: {str(e)}")
 
-        print("✅ Parsed Batches Data:", batches_data)
-        print("✅ Parsed Logs Data:", logs_data)
-
-        # Handle None or empty data
-        if not batches_data:
-            print("⚠️ No batches data found in Firebase")
-            batches_data = []
-        if not logs_data:
-            print("⚠️ No logs data found in Firebase")
-            logs_data = []
-
-        # Ensure the data is in list format
-        if isinstance(batches_data, dict):
-            batches_data = list(batches_data.values())
-
-        if isinstance(logs_data, dict):
-            logs_data = list(logs_data.values())
-
-        # Create DataFrames with error handling
-        df_batches = pd.DataFrame(batches_data) if batches_data else pd.DataFrame()
-        df_logs = pd.DataFrame(logs_data) if logs_data else pd.DataFrame()
-
-        # Handle Start_date column with error checking
-        if not df_batches.empty and "Start_date" in df_batches.columns:
-            df_batches["Start_date"] = df_batches["Start_date"].apply(convert_to_datetime)
-        elif not df_batches.empty:
-            print("⚠️ No 'Start_date' column found in batches data. Available columns:", df_batches.columns.tolist())
-            # Add a default Start_date column if missing
-            df_batches["Start_date"] = None
-
-        # Handle Date column with error checking
-        if not df_logs.empty and "Date" in df_logs.columns:
-            df_logs["Date"] = df_logs["Date"].apply(convert_to_datetime)
-        elif not df_logs.empty:
-            print("⚠️ No 'Date' column found in logs data. Available columns:", df_logs.columns.tolist())
-            # Add a default Date column if missing
-            df_logs["Date"] = None
-
-        # Convert DataFrames to objects
-        batch_list, log_list = create_objects_from_df(df_batches, df_logs)
-
-        return batch_list, log_list
+        return batches_list, logs_list
 
     except Exception as e:
         print(f"🚨 Error in run_example: {str(e)}")
-        # Return empty lists as fallback
+        import traceback
+        traceback.print_exc()
         return [], []

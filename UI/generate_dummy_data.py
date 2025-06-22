@@ -10,7 +10,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Current file location
 PARENT_DIR = os.path.dirname(BASE_DIR)  # Parent directory
 SERVICE_ACCOUNT_FILE = os.path.join(
     PARENT_DIR, "db", "farm-management-FireBase_credentials.json")
-DATABASE_URL = "https://farm-management-86035-default-rtdb.europe-west1.firebasedatabase.app/"
+DATABASE_URL = "https://mush-farm-management-default-rtdb.firebaseio.com/"
 
 # Check if the file exists
 if not os.path.exists(SERVICE_ACCOUNT_FILE):

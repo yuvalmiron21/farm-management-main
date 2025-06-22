@@ -29,6 +29,8 @@ from user_management import UserManagement
 from UI.UserManagementGUI import UserManagementGUI
 from UI.live_simulation import MushroomSimulator
 from db.cache_manager import CacheManager
+from LoadingWindow import LoadingWindow
+from SimpleLoadingWindow import SimpleLoadingWindow
 
 # Initialize Firebase
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Current file location
@@ -696,6 +698,7 @@ class ModernSidebar(QFrame):
 
         # Logout button
         logout_btn = QPushButton("🚪  Logout")
+        logout_btn.setObjectName("logout_btn")
         logout_btn.setStyleSheet("""
             QPushButton {
                 color: #ff7675;
@@ -706,6 +709,10 @@ class ModernSidebar(QFrame):
             QPushButton:hover {
                 background: #2d3436;
                 color: #e74c3c;
+            }
+            QPushButton:disabled {
+                color: #a0a0a0;
+                background: #2d3436;
             }
         """)
         logout_btn.clicked.connect(self.logout)
@@ -718,7 +725,18 @@ class ModernSidebar(QFrame):
             self.nav_callbacks[button.property("page")]()
 
     def logout(self):
-        self.parent().handle_logout()
+        # Disable the logout button to prevent multiple clicks
+        sender = self.sender()
+        if sender:
+            sender.setEnabled(False)
+            sender.setText("Logging out...")
+        
+        # Disable all navigation buttons during logout
+        for btn in self.buttons:
+            btn.setEnabled(False)
+        
+        # Use timer to show loading and then logout
+        QTimer.singleShot(1000, self.parent().handle_logout)
 
 class Main_gui(QMainWindow):
     def __init__(self, user_data):
@@ -729,11 +747,20 @@ class Main_gui(QMainWindow):
         self.setWindowFlags(Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, False)
         
+        # Show loading window first
+        self.loading_window = SimpleLoadingWindow()
+        self.loading_window.show()
+        
         # Set default font for the entire application
         self.set_font()
         
+        # Initialize UI components immediately
         self.init_ui()
-        self.setup_navigation()
+        
+        # The logout signal is handled by the ModernSidebar, so no connection is needed here.
+        # if hasattr(self, 'user_dashboard') and self.user_dashboard:
+        #      self.user_dashboard.logout_successful.connect(self.handle_logout)
+
         self.add_floating_chat_button()
         self.show_dashboard()  # Show dashboard by default
         self.showMaximized()
@@ -1155,8 +1182,8 @@ class Main_gui(QMainWindow):
         layout = QVBoxLayout(self.dashboard_page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        dashboard = DashboardWindow()
-        layout.addWidget(dashboard)
+        self.user_dashboard = DashboardWindow()
+        layout.addWidget(self.user_dashboard)
 
     def init_orders_page(self):
         layout = QVBoxLayout(self.orders_page)
@@ -1333,7 +1360,20 @@ class Main_gui(QMainWindow):
         layout.addWidget(settings)
 
     def handle_logout(self):
+        # Show loading window
+        loading_window = SimpleLoadingWindow()
+        loading_window.show()
+        
+        # Close current window after a short delay
+        QTimer.singleShot(1000, lambda: self.complete_logout(loading_window))
+        
+    def complete_logout(self, loading_window):
+        """Complete the logout process"""
+        # Close current window
         self.close()
+        
+        # Close loading window and show login
+        loading_window.close()
         from LoginGUI import LoginGUI
         login = LoginGUI()
         login.show()

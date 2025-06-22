@@ -8,7 +8,7 @@ import firebase_admin
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(BASE_DIR)
 SERVICE_ACCOUNT_FILE = os.path.join(PARENT_DIR, "db", "farm-management-FireBase_credentials.json")
-DATABASE_URL = "https://farm-management-86035-default-rtdb.europe-west1.firebasedatabase.app/"
+DATABASE_URL = "https://mush-farm-management-default-rtdb.firebaseio.com/"
 if not firebase_admin._apps:
     cred = credentials.Certificate(SERVICE_ACCOUNT_FILE)
     initialize_app(cred, {"databaseURL": DATABASE_URL})

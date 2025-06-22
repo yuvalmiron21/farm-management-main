@@ -1,0 +1,14 @@
+{
+  "-OSP-l_UeTtSxSAywSRH": {
+    "LoggedIn": true,
+    "Password": "$2b$12$3XaCzkuMwkBp7PQXppzmaOXfTB7g0zD8xviqdhD2dMsVfQdRbbSWu",
+    "Role": "admin",
+    "Username": "admin"
+  },
+  "-OSP5V6SlfO_FkLkxnfB": {
+    "LoggedIn": true,
+    "Password": "$2b$12$vmhsx.SgA4pONCEA6pdk4Oz4Jg0677jSDGNVqSkxQ1IGbpdXfbtgO",
+    "Role": "user",
+    "Username": "user"
+  }
+}

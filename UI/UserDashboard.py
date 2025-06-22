@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import (
     QFrame, QScrollArea, QMessageBox, QDialog, QStackedWidget, QSizePolicy, QMainWindow, QSpacerItem
 )
 from PyQt5.QtGui import QFont, QIcon, QColor, QPixmap
-from PyQt5.QtCore import Qt, QSize, QPoint
+from PyQt5.QtCore import Qt, QSize, QPoint, QTimer
 from Order_gui import OrderGUI
 from Growing_bed_gui import GrowingBedGUI
 from Customer_gui import CustomerGUI
@@ -11,6 +11,8 @@ from WarehouseGUI import WarehouseGUI
 from FarmVisualGUI import FarmVisualGUI
 from AnalyticsApp import AnalyticsApp
 from firebase_admin import db
+from LoadingWindow import LoadingWindow
+from SimpleLoadingWindow import SimpleLoadingWindow
 import os
 
 class Sidebar(QFrame):
@@ -84,6 +86,7 @@ class Sidebar(QFrame):
         layout.addStretch()
         # Logout button
         logout_btn = QPushButton("🚪  Logout")
+        logout_btn.setObjectName("logout_btn")
         logout_btn.setStyleSheet("""
             QPushButton {
                 color: #ff7675;
@@ -91,6 +94,10 @@ class Sidebar(QFrame):
                 font-weight: bold;
             }
             QPushButton:hover {
+                background: #2d3436;
+            }
+            QPushButton:disabled {
+                color: #a0a0a0;
                 background: #2d3436;
             }
         """)
@@ -108,6 +115,31 @@ class Sidebar(QFrame):
             win.change_page(button.property("page"))
 
     def logout(self):
+        """Handle logout with loading indicator"""
+        # Disable all buttons during logout
+        for btn in self.buttons:
+            btn.setEnabled(False)
+        
+        # Find logout button and update it
+        logout_btn = self.findChild(QPushButton, "logout_btn")
+        if logout_btn:
+            logout_btn.setText("Logging out...")
+            logout_btn.setEnabled(False)
+        
+        # Use timer to simulate logout process
+        QTimer.singleShot(1000, self.complete_logout)
+        
+    def complete_logout(self):
+        """Complete the logout process"""
+        # Show loading window
+        loading_window = SimpleLoadingWindow()
+        loading_window.show()
+        
+        # Close current window after a short delay
+        QTimer.singleShot(1000, lambda: self.finish_logout(loading_window))
+        
+    def finish_logout(self, loading_window):
+        """Finish the logout process"""
         from user_management import UserManagement
         win = self.parent()
         while win and not hasattr(win, 'username'):
@@ -116,6 +148,9 @@ class Sidebar(QFrame):
             UserManagement.logout_user(win.username)
         if win:
             win.close()
+        
+        # Close loading window and show login
+        loading_window.close()
         from LoginGUI import LoginGUI
         login = LoginGUI()
         login.show()
@@ -177,6 +212,12 @@ class UserDashboard(QMainWindow):
         self._old_pos = None
         self.chat_button = None
         self.chat_gui = None
+        
+        # Show loading window first
+        self.loading_window = SimpleLoadingWindow()
+        self.loading_window.show()
+        
+        # Initialize UI components immediately
         self.init_ui()
         self.add_floating_chat_button()
         self.showMaximized()
@@ -391,4 +432,8 @@ class UserDashboard(QMainWindow):
             self.chat_gui.raise_()
             self.chat_gui.activateWindow()
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to open AI Assistant: {str(e)}") 
+            QMessageBox.critical(self, "Error", f"Failed to open AI Assistant: {str(e)}")
+
+    def set_font(self):
+        # Implementation of set_font method
+        pass 
