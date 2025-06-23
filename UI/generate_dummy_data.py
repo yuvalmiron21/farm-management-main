@@ -3,6 +3,12 @@ from datetime import datetime, timedelta
 from firebase_admin import db, credentials, initialize_app
 import uuid
 import os
+import sys
+
+# Add the project root to the Python path
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(project_root)
+
 from db.cache_manager import CacheManager
 
 # Initialize Firebase
@@ -283,5 +289,80 @@ def upload_dummy_data():
         print(f"Error uploading dummy data: {str(e)}")
         return False
 
+def generate_analytics_data():
+    """Generate dummy data specifically for analytics in the correct format"""
+    try:
+        print("🔄 Generating analytics data...")
+        
+        # Generate batches in the correct format
+        batches = {}
+        mushroom_types = ["Erinji", "Shiitake", "Maitake", "Hericium", "Tiger Sawgill", "Nebrodensis"]
+        
+        for i in range(50):  # Generate 50 batches
+            batch_id = f"batch_{i+1}"
+            start_date = datetime.now() - timedelta(days=random.randint(1, 365))
+            
+            batches[batch_id] = {
+                "batch_id": i+1,
+                "mushroom_type": random.choice(mushroom_types),
+                "iteration_id": random.randint(1, 10),
+                "start_date": start_date.strftime("%Y-%m-%d"),
+                "room_number": random.randint(1, 10),
+                "substrate": round(random.uniform(20, 100), 2)
+            }
+        
+        # Generate logs in the correct format
+        logs = {}
+        log_id_counter = 1
+        
+        for batch_id, batch_data in batches.items():
+            # Generate multiple logs per batch
+            num_logs_per_batch = random.randint(20, 100)
+            batch_start_date = datetime.strptime(batch_data["start_date"], "%Y-%m-%d")
+            
+            for j in range(num_logs_per_batch):
+                log_id = f"log_{log_id_counter}"
+                log_date = batch_start_date + timedelta(days=random.randint(0, 60), 
+                                                       hours=random.randint(0, 23),
+                                                       minutes=random.randint(0, 59))
+                
+                # Generate realistic environmental data
+                air_temp = round(random.uniform(18, 26), 1)
+                substrate_temp = round(air_temp + random.uniform(-2, 2), 1)
+                rh_humidity = round(random.uniform(75, 95), 1)
+                co2 = round(random.uniform(400, 1500), 1)
+                
+                # Generate harvest data (only some logs have harvest)
+                harvest = 0
+                if random.random() < 0.1:  # 10% of logs have harvest
+                    harvest = round(random.uniform(0.1, 5.0), 2)
+                
+                logs[log_id] = {
+                    "log_id": log_id_counter,
+                    "batch_id": batch_data["batch_id"],
+                    "days_after_plant": (log_date - batch_start_date).days,
+                    "date": log_date.strftime("%Y-%m-%d %H:%M:%S"),
+                    "hour": log_date.strftime("%H:%M"),
+                    "air_temp": air_temp,
+                    "substrate_temp": substrate_temp,
+                    "rh_humidity": rh_humidity,
+                    "co2": co2,
+                    "day_hours": random.randint(8, 16),
+                    "harvest": harvest,
+                    "if_bagged": random.choice([True, False])
+                }
+                log_id_counter += 1
+        
+        # Upload to Firebase
+        _cache_manager.set_data('Batches', batches)
+        _cache_manager.set_data('Logs', logs)
+        
+        print(f"✅ Successfully generated {len(batches)} batches and {len(logs)} logs for analytics!")
+        return True
+        
+    except Exception as e:
+        print(f"🚨 Error generating analytics data: {str(e)}")
+        return False
+
 if __name__ == "__main__":
-    upload_growing_beds_only() 
+    generate_analytics_data() 

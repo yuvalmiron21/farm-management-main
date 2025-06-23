@@ -14,10 +14,17 @@ class Batch:
         iteration_id: Optional[int] = None,
         start_date: Optional[datetime] = None,
         room_number: Optional[int] = None,
-        substrate: Optional[float] = None
+        substrate: Optional[float] = None,
+        batch_id: Optional[int] = None  # Add batch_id as optional parameter
     ):
-        self.batch_id = Batch._batch_id_counter
-        Batch._batch_id_counter += 1
+        if batch_id is not None:
+            self.batch_id = int(batch_id) # Ensure it's an int
+            if self.batch_id >= Batch._batch_id_counter:
+                Batch._batch_id_counter = self.batch_id + 1
+        else:
+            self.batch_id = Batch._batch_id_counter
+            Batch._batch_id_counter += 1
+            
         self.mushroom_type = mushroom_type
         self.iteration_id = iteration_id
         self.start_date = start_date
@@ -113,41 +120,55 @@ def create_objects_from_df(iteration_table, log_table):
     logs = []
 
     # Map Mahzor_id to Batch ID
-    mahzor_to_batch_id = {}
+    id_map = {}
 
     # Process iteration_table to create Batch objects
     if not iteration_table.empty:
         for _, row in iteration_table.iterrows():
             try:
                 # Keep the date as is if it's already in datetime format
-                start_date = row.get("Start_date")
+                start_date = row.get("Start_date") or row.get("start_date")
                 if start_date is not None and not pd.isna(start_date) and not isinstance(start_date, datetime):
                     try:
                         start_date = datetime.strptime(str(start_date), "%d/%m/%Y")
                     except ValueError:
                         try:
-                            start_date = datetime.strptime(str(start_date), "%Y-%m-%d")
+                            start_date = datetime.strptime(str(start_date), "%Y-%m-%d %H:%M:%S")
                         except ValueError:
-                            print(f"⚠️ Unable to parse start_date: {start_date}")
-                            start_date = None
+                             try:
+                                start_date = datetime.strptime(str(start_date), "%Y-%m-%d")
+                             except ValueError:
+                                print(f"⚠️ Unable to parse start_date: {start_date}")
+                                start_date = None
+
                 elif start_date is not None and pd.isna(start_date):
                     start_date = None
 
+                # Try to get batch_id directly from the data
+                batch_id_val = row.get('batch_id') or row.get('BatchID')
+
                 batch = Batch(
+                    batch_id=batch_id_val,
                     mushroom_type=row.get("mushroom_type"),
-                    iteration_id=row.get("Iteration_ID"),
+                    iteration_id=row.get("Iteration_ID") or row.get("iteration_id"),
                     start_date=start_date,
-                    room_number=row.get("Room_number"),
-                    substrate=row.get("Substrate")
+                    room_number=row.get("Room_number") or row.get("room_number"),
+                    substrate=row.get("Substrate") or row.get("substrate")
                 )
                 batches.append(batch)
                 
-                # Only map if MAHZOR_ID exists and is not None
+                # Legacy support for MAHZOR_ID
                 mahzor_id = row.get("MAHZOR_ID")
                 if mahzor_id is not None and not pd.isna(mahzor_id):
-                    mahzor_to_batch_id[mahzor_id] = batch.batch_id
+                    id_map[mahzor_id] = batch.batch_id
+                # New support for batch_id
+                if batch_id_val is not None:
+                     id_map[batch_id_val] = batch.batch_id
+
             except Exception as e:
+                import traceback
                 print(f"⚠️ Error processing batch row: {str(e)}")
+                traceback.print_exc()
                 continue
     else:
         print("⚠️ Empty iteration_table, no batches to process")
@@ -156,40 +177,46 @@ def create_objects_from_df(iteration_table, log_table):
     if not log_table.empty:
         for _, row in log_table.iterrows():
             try:
-                # Match the batch_id using the Mahzor_id from the log
-                mahzor_id = row.get("Mahzor_id")
-                batch_id = mahzor_to_batch_id.get(mahzor_id) if mahzor_id is not None else None
+                # Match the batch_id using Mahzor_id or direct batch_id
+                log_batch_id_ref = row.get("batch_id") or row.get("BatchID") or row.get("Mahzor_id")
+                batch_id = id_map.get(int(log_batch_id_ref)) if log_batch_id_ref is not None and pd.notna(log_batch_id_ref) else None
 
                 # Keep the date as is if it's already in datetime format
-                log_date = row.get("Date")
+                log_date = row.get("Date") or row.get("date")
                 if log_date is not None and not pd.isna(log_date) and not isinstance(log_date, datetime):
                     try:
                         log_date = datetime.strptime(str(log_date), "%d/%m/%Y")
                     except ValueError:
                         try:
-                            log_date = datetime.strptime(str(log_date), "%Y-%m-%d")
+                            log_date = datetime.strptime(str(log_date), "%Y-%m-%d %H:%M:%S")
                         except ValueError:
-                            print(f"⚠️ Unable to parse log_date: {log_date}")
-                            log_date = None
+                            try:
+                                log_date = datetime.strptime(str(log_date), "%Y-%m-%d")
+                            except ValueError:
+                                print(f"⚠️ Unable to parse log_date: {log_date}")
+                                log_date = None
                 elif log_date is not None and pd.isna(log_date):
                     log_date = None
 
                 log = Log(
                     batch_id=batch_id,
-                    days_after_plant=row.get("Days_after_plant"),
+                    days_after_plant=row.get("Days_after_plant") or row.get("days_after_plant"),
                     date=log_date,
-                    hour=row.get("Hour"),
-                    air_temp=row.get("AIR_temp"),
-                    substrate_temp=row.get("Substrate_temp"),
-                    rh_humidity=row.get("RH_Humadity"),
-                    co2=row.get("CO2"),
+                    hour=row.get("Hour") or row.get("hour"),
+                    air_temp=row.get("AIR_temp") or row.get("air_temp"),
+                    substrate_temp=row.get("Substrate_temp") or row.get("substrate_temp"),
+                    rh_humidity=row.get("RH_Humadity") or row.get("rh_humidity"),
+                    co2=row.get("CO2") or row.get("co2"),
                     day_hours=row.get("day_hours"),
-                    harvest=row.get("Katif"),
-                    if_bagged=bool(row.get("if_bagged")) if row.get("if_bagged") is not None else None
+                    harvest=row.get("Katif") or row.get("harvest"),
+                    if_bagged=bool(row.get("if_bagged")) if pd.notna(row.get("if_bagged")) else None
                 )
                 logs.append(log)
             except Exception as e:
+                import traceback
                 print(f"⚠️ Error processing log row: {str(e)}")
+                traceback.print_exc()
+
                 continue
     else:
         print("⚠️ Empty log_table, no logs to process")
