@@ -31,6 +31,7 @@ from UI.live_simulation import MushroomSimulator
 from db.cache_manager import CacheManager
 from LoadingWindow import LoadingWindow
 from SimpleLoadingWindow import SimpleLoadingWindow
+import matplotlib.patheffects as patheffects
 
 # Initialize Firebase
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Current file location
@@ -202,7 +203,8 @@ def get_recent_orders(limit=10):
             'OrderID': order.get('OrderID', order.get('OrderKey', '')),
             'Customer': get_customer_name(order.get('CustomerID', '')),
             'Amount': float(order.get('TotalAmount', 0)),
-            'Status': order.get('Status', '')
+            'Status': order.get('Status', ''),
+            'OrderDate': order.get('OrderDate', '')
         })
     return recent
 
@@ -261,97 +263,70 @@ class StatusBadgeDelegate(QStyledItemDelegate):
 class ModernKpiCard(QFrame):
     def __init__(self, title, value, icon, spark_data):
         super().__init__()
-        # Theme-aware color map
         color_map = {
-            'Total Revenue': {'light': 'rgba(76,175,80,0.1)', 'dark': 'rgba(76,175,80,0.3)', 'icon': '#4caf50'},
-            'Active Orders': {'light': 'rgba(255,152,0,0.1)', 'dark': 'rgba(255,152,0,0.3)', 'icon': '#ff9800'},
-            'Customers': {'light': 'rgba(33,150,243,0.1)', 'dark': 'rgba(33,150,243,0.3)', 'icon': '#2196f3'},
-            'Occupancy': {'light': 'rgba(156,39,176,0.1)', 'dark': 'rgba(156,39,176,0.3)', 'icon': '#9c27b0'}
+            'Total Revenue': '#4F8EF7',
+            'Active Orders': '#FF9800',
+            'Customers': '#6C63FF',
+            'Occupancy': '#00C48C'
         }
-        theme = 'dark' if QApplication.instance().palette().color(QPalette.Window).lightness() < 128 else 'light'
-        bg_color = color_map.get(title, {'light': 'rgba(255,255,255,0.1)', 'dark': 'rgba(255,255,255,0.3)', 'icon': '#888'})[theme]
-        icon_color = color_map.get(title, {'icon': '#888'})['icon']
-
-        # Styling
-        self.setStyleSheet(f"""
-            QFrame {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                            stop:0 {bg_color}, stop:1 rgba(255,255,255,0.05));
+        color = color_map.get(title, '#4F8EF7')
+        self.setFixedSize(330, 150)
+        self.setStyleSheet("""
+            QFrame {
+                background: #fff;
                 border-radius: 20px;
-                border: 1.5px solid #fff;
-                box-shadow: 0 6px 20px rgba(0,0,0,0.08);
-                transition: all 0.3s ease;
-            }}
-            QLabel {{
-                background: transparent;
-                border: none;
-                color: #333;
-                padding: 0;
-                margin: 0;
-            }}
+                border: 1.5px solid #e6e8ec;
+            }
         """)
-        self.setFixedSize(360, 140)
-
-        # Layout
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(22)
+        shadow.setColor(QColor(200, 200, 200, 60))
+        shadow.setOffset(0, 6)
+        self.setGraphicsEffect(shadow)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(18, 14, 18, 14)
-        layout.setSpacing(16)
-
-        # Left: icon + text
-        text_col = QVBoxLayout()
-        text_col.setAlignment(Qt.AlignCenter)
-        icon_label = QLabel(icon)
-        icon_label.setFont(QFont("FontAwesome, Segoe UI Emoji", 28))
-        icon_label.setStyleSheet("background: transparent; border: none; color: %s;" % icon_color)
+        layout.setContentsMargins(22, 16, 22, 16)
+        layout.setSpacing(12)
+        # Left: icon + value + title (centered)
+        left_col = QVBoxLayout()
+        left_col.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+        # Icon in colored circle
+        icon_bg = QLabel()
+        icon_bg.setFixedSize(44, 44)
+        icon_bg.setStyleSheet(f"background: {color}; border-radius: 22px;")
+        icon_label = QLabel(icon, icon_bg)
+        icon_label.setFont(QFont("Segoe UI Emoji", 26))
         icon_label.setAlignment(Qt.AlignCenter)
+        icon_label.setStyleSheet("color: #fff;")
+        icon_label.setFixedSize(44, 44)
+        left_col.addWidget(icon_bg, alignment=Qt.AlignLeft)
+        # Value
         value_label = QLabel(str(value))
-        value_label.setFont(QFont("Inter, Segoe UI", 28, QFont.Bold))
-        value_label.setStyleSheet("background: transparent; border: none; color: #1A1A1A; letter-spacing: 0.5px;")
-        value_label.setAlignment(Qt.AlignCenter)
+        value_label.setFont(QFont("Segoe UI", 32, QFont.Bold))
+        value_label.setStyleSheet("color: #23272e; margin-top: 4px; background: none; border: none;")
+        value_label.setAlignment(Qt.AlignLeft)
+        left_col.addWidget(value_label, alignment=Qt.AlignLeft)
+        # Title
         title_label = QLabel(title)
-        title_label.setFont(QFont("Inter, Segoe UI", 14, QFont.Medium))
-        title_label.setStyleSheet("background: transparent; border: none; color: #666; letter-spacing: 1px;")
-        title_label.setAlignment(Qt.AlignCenter)
-        text_col.addWidget(icon_label)
-        text_col.addWidget(value_label)
-        text_col.addWidget(title_label)
-        text_col.addStretch(1)
-        layout.addLayout(text_col, 3)
-
+        title_label.setFont(QFont("Segoe UI", 15))
+        title_label.setStyleSheet("color: #8b98a9; margin-top: 0px; background: none; border: none;")
+        title_label.setAlignment(Qt.AlignLeft)
+        left_col.addWidget(title_label, alignment=Qt.AlignLeft)
+        left_col.addStretch(1)
+        layout.addLayout(left_col, 2)
         # Right: sparkline
-        spark = self.create_sparkline(spark_data)
-        layout.addWidget(spark, 2)
-
-        # Fade-in animation
-        self.setGraphicsEffect(QGraphicsOpacityEffect())
-        self.animation = QPropertyAnimation(self.graphicsEffect(), b"opacity")
-        self.animation.setDuration(500)
-        self.animation.setStartValue(0)
-        self.animation.setEndValue(1)
-        self.animation.setEasingCurve(QEasingCurve.InOutQuad)
-        self.animation.start()
-
-    def create_sparkline(self, spark_data):
-        # Placeholder for sparkline widget, replace with your actual implementation
-        fig = Figure(figsize=(2, 0.8), dpi=60)
+        spark = self.create_sparkline(spark_data, color)
+        layout.addWidget(spark, 1)
+    def create_sparkline(self, spark_data, color):
+        fig = Figure(figsize=(1.8, 1.2), dpi=60)
         ax = fig.add_subplot(111)
-        ax.plot(spark_data, color='#1976d2', linewidth=2)
+        ax.plot(spark_data, color=color, linewidth=2.5)
+        ax.fill_between(range(len(spark_data)), spark_data, color=color, alpha=0.13)
         ax.axis('off')
         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
         canvas = FigureCanvas(fig)
-        canvas.setFixedSize(100, 60)
+        canvas.setFixedSize(90, 60)
         canvas.setStyleSheet("background: transparent; border: none;")
-        canvas.setToolTip("Data trend over time")
         return canvas
-
-    def enterEvent(self, event):
-        self.setStyleSheet(self.styleSheet() + "box-shadow: 0 10px 24px rgba(0,0,0,0.15);")
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        # Remove the hover shadow
-        self.setStyleSheet(self.styleSheet().replace("box-shadow: 0 10px 24px rgba(0,0,0,0.15);", "box-shadow: 0 6px 20px rgba(0,0,0,0.08);"))
-        super().leaveEvent(event)
 
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
@@ -408,21 +383,30 @@ class DashboardWindow(QWidget):
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(0)
-        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setContentsMargins(0, 0, 0, 0)
+        kpi_row_container = QWidget()
+        kpi_row_container.setStyleSheet("background: transparent;")
+        kpi_row_layout = QHBoxLayout(kpi_row_container)
+        kpi_row_layout.setContentsMargins(0, 36, 0, 36)
+        kpi_row_layout.setSpacing(36)
+        kpi_row_layout.addStretch(1)
         kpis = [
             ("Total Revenue", f"₪{self.kpi_data['total_revenue']:,.0f}", "💰", [100, 120, 90, 130, 150, 170, 160]),
             ("Active Orders", str(self.kpi_data['active_orders']), "📦", [10, 12, 8, 15, 13, 14, 16]),
             ("Customers", str(self.kpi_data['num_customers']), "👥", [200, 220, 210, 230, 250, 270, 260]),
             ("Occupancy", f"{self.kpi_data['occupancy']}%", "🌱", [60, 65, 70, 68, 72, 75, 80])
         ]
-        kpi_row = QHBoxLayout()
-        kpi_row.setSpacing(32)
-        kpi_row.setContentsMargins(0, 30, 0, 30)
         for title, value, icon, spark_data in kpis:
             kpi_card = ModernKpiCard(title, value, icon, spark_data)
-            kpi_row.addWidget(kpi_card)
-        kpi_row.setAlignment(Qt.AlignHCenter)
-        layout.addLayout(kpi_row)
+            kpi_row_layout.addWidget(kpi_card)
+        kpi_row_layout.addStretch(1)
+        kpi_row_container.setMaximumWidth(1550)
+        kpi_row_container.setMinimumWidth(1350)
+        kpi_row_outer = QHBoxLayout()
+        kpi_row_outer.addStretch(1)
+        kpi_row_outer.addWidget(kpi_row_container)
+        kpi_row_outer.addStretch(1)
+        layout.addLayout(kpi_row_outer)
         # Charts section
         charts_row = QHBoxLayout()
         revenue_chart = self.create_revenue_chart()
@@ -442,28 +426,42 @@ class DashboardWindow(QWidget):
         months, revenue = get_monthly_revenue()
         fig = Figure(figsize=(6, 4))
         ax = fig.add_subplot(111)
-        line, = ax.plot(months, revenue, marker='o', color='#4CAF50', linewidth=2)
-        ax.set_title('Revenue Over Time')
-        ax.grid(True, linestyle='--', alpha=0.7)
+        # קו ירוק מודרני
+        line, = ax.plot(months, revenue, marker='o', color='#43d39e', linewidth=2.5, zorder=3)
+        # נקודות לבנות עם גבול ירוק
+        ax.scatter(months, revenue, color='#fff', edgecolor='#43d39e', s=80, zorder=4, linewidth=2)
+        # צללית ירוקה בהירה
+        ax.fill_between(months, revenue, color='#43d39e', alpha=0.10, zorder=2)
+        # רקע לבן
+        fig.patch.set_facecolor('white')
+        ax.set_facecolor('white')
+        # צירים וטקסט אפור בהיר
+        ax.tick_params(axis='x', colors='#b0b7c3', labelsize=12)
+        ax.tick_params(axis='y', colors='#b0b7c3', labelsize=12)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_color('#e0e6ed')
+        ax.spines['bottom'].set_color('#e0e6ed')
+        # grid עדין
+        ax.grid(True, linestyle='--', alpha=0.25, color='#b0b7c3', zorder=1)
+        ax.set_title('Revenue Over Time', fontsize=16, color='#23272e', pad=18)
         fig.tight_layout()
         canvas = FigureCanvas(fig)
         canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-        # Add hover effect
+        # Tooltip מודרני
         annot = ax.annotate("", xy=(0,0), xytext=(15,15), textcoords="offset points",
-                            bbox=dict(boxstyle="round", fc="#f5f5f5", ec="#4CAF50"),
-                            arrowprops=dict(arrowstyle="->", color="#4CAF50"))
+                            bbox=dict(boxstyle="round,pad=0.4", fc="#fff", ec="#43d39e", lw=1.5, alpha=0.95, zorder=10),
+                            arrowprops=dict(arrowstyle="->", color="#43d39e"))
         annot.set_visible(False)
-
         def update_annot(ind):
             x, y = line.get_data()
             idx = ind["ind"][0]
             annot.xy = (x[idx], y[idx])
             text = f"{months[idx]}: ₪{y[idx]:,.2f}"
             annot.set_text(text)
-            annot.get_bbox_patch().set_facecolor("#f5f5f5")
-            annot.get_bbox_patch().set_alpha(0.95)
-
+            annot.get_bbox_patch().set_facecolor("#fff")
+            annot.get_bbox_patch().set_edgecolor("#43d39e")
+            annot.get_bbox_patch().set_alpha(0.97)
         def hover(event):
             vis = annot.get_visible()
             if event.inaxes == ax:
@@ -476,7 +474,6 @@ class DashboardWindow(QWidget):
                     if vis:
                         annot.set_visible(False)
                         canvas.draw_idle()
-
         canvas.mpl_connect("motion_notify_event", hover)
         return canvas
 
@@ -484,119 +481,157 @@ class DashboardWindow(QWidget):
         stage_counts = get_bed_occupancy()
         labels = list(stage_counts.keys())
         sizes = list(stage_counts.values())
-        colors = ['#4e73df', '#f6c23e', '#1cc88a', '#e74a3b', '#858796']
+        colors = ['#43d39e', '#b0b7c3', '#6C63FF', '#228B22', '#e0e6ed']
         fig = Figure(figsize=(4, 4))
         ax = fig.add_subplot(111)
-        wedges, texts, autotexts = ax.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', startangle=90)
-        ax.set_title('Bed Occupancy')
+        wedges, texts, autotexts = ax.pie(
+            sizes,
+            labels=labels,
+            colors=colors,
+            autopct='%1.1f%%',
+            startangle=90,
+            wedgeprops=dict(width=0.35, edgecolor='white'),
+            textprops={'color': '#23272e', 'fontsize': 13},
+            pctdistance=0.80
+        )
+        for autotext in autotexts:
+            autotext.set_color('#23272e')
+            autotext.set_fontsize(10)
+            autotext.set_fontweight('bold')
+            autotext.set_path_effects([patheffects.withStroke(linewidth=2, foreground='white')])
+        fig.patch.set_facecolor('white')
+        ax.set_facecolor('white')
+        ax.set_title('Bed Occupancy', fontsize=16, color='#23272e', pad=18)
         fig.tight_layout()
         canvas = FigureCanvas(fig)
         canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-        # Add hover effect for pie
         def on_move(event):
             found = False
             for i, wedge in enumerate(wedges):
                 if wedge.contains_point([event.x, event.y], radius=1.5):
-                    wedge.set_alpha(0.6)
+                    wedge.set_alpha(0.7)
                     percent = (sizes[i] / sum(sizes) * 100) if sum(sizes) > 0 else 0
-                    ax.set_title(f"{labels[i]}: {sizes[i]} beds ({percent:.1f}%)")
+                    ax.set_title(f"{labels[i]}: {sizes[i]} beds ({percent:.1f}%)", fontsize=16, color='#43d39e')
                     found = True
                 else:
                     wedge.set_alpha(1.0)
             if not found:
-                ax.set_title('Bed Occupancy')
+                ax.set_title('Bed Occupancy', fontsize=16, color='#23272e')
             canvas.draw_idle()
-
         canvas.mpl_connect('motion_notify_event', on_move)
         return canvas
 
     def create_orders_table(self):
+        # עטיפת הטבלה ב-QFrame מודרני
+        table_frame = QFrame()
+        table_frame.setStyleSheet('''
+            QFrame {
+                background: #fff;
+                border-radius: 18px;
+                border: 1.5px solid #e0e6ed;
+                box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+            }
+        ''')
+        frame_layout = QVBoxLayout(table_frame)
+        frame_layout.setContentsMargins(24, 18, 24, 18)
+        frame_layout.setSpacing(0)
         table = QTableWidget()
-        table.setColumnCount(4)
-        table.setHorizontalHeaderLabels(["Order #", "Customer", "Amount", "Status"])
+        table.setColumnCount(5)
+        table.setHorizontalHeaderLabels(["No", "Customer", "Amount", "Status", "Order Date"])
         table.verticalHeader().setVisible(False)
         table.setShowGrid(False)
         table.setAlternatingRowColors(False)
-        table.setStyleSheet("""
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.setSelectionMode(QTableWidget.NoSelection)
+        table.setFocusPolicy(Qt.NoFocus)
+        table.setStyleSheet('''
             QTableWidget {
-                background: #f7f7f7;
-                border-radius: 14px;
-                border: 1px solid #e0e0e0;
-                font-size: 13px;
-                color: #222;
-                gridline-color: #f0f0f0;
+                background: transparent;
+                border: none;
+                font-size: 12px;
+                color: #23272e;
                 font-family: 'Segoe UI';
-                font-weight: 600;
             }
             QHeaderView::section {
-                background: #e0e0e0;
-                color: #222;
-                font-size: 14px;
-                font-weight: bold;
-                border: none;
-                border-bottom: 2px solid #bdbdbd;
-                padding: 12px 0;
-                font-family: 'Segoe UI';
+                background: #f7f8fa;
+                color: #8b98a9;
+                font-size: 13px;
                 font-weight: 600;
+                border: none;
+                border-bottom: 2px solid #e0e6ed;
+                padding: 10px 0;
             }
             QTableWidget::item {
-                padding: 10px;
-                border-bottom: 1px solid #e0e0e0;
+                padding: 8px;
+                border-bottom: 1px solid #e0e6ed;
                 font-size: 12px;
-                font-family: 'Segoe UI';
-                font-weight: 600;
             }
-            QTableWidget::item:selected {
-                background: #d6e4f0;
-                color: #1976d2;
-            }
-            QTableWidget::item:hover {
-                background: #e3eafc;
-            }
-            QScrollBar:vertical {
-                background: #f7f7f7;
-                width: 12px;
-                margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background: #bdbdbd;
-                min-height: 30px;
-                border-radius: 6px;
-            }
-        """)
+        ''')
         # Get real data
         data = get_recent_orders(10)
         table.setRowCount(len(data))
         status_colors = {
-            "Pending": "#f1c40f",
-            "Shipped": "#3498db",
-            "Delivered": "#27ae60",
-            "Completed": "#27ae60",
-            "Cancelled": "#e74c3c",
-            "Pending Shipment": "#f39c12",
-            "Processing": "#e67e22"
+            "Paid": ("#e3f8f3", "#43d39e"),
+            "Pending": ("#fff6e3", "#ff9800"),
+            "Overdue": ("#ffe3e3", "#e74c3c"),
+            "Processing": ("#e3e8ff", "#6C63FF"),
+            "Shipped": ("#e3f0ff", "#2196f3"),
+            "Delivered": ("#e3f8f3", "#43d39e"),
+            "Completed": ("#e3f8f3", "#43d39e"),
+            "Cancelled": ("#ffe3e3", "#e74c3c")
         }
-        font_family = QApplication.font().family()
+        import hashlib
+        color_palette = ["#43d39e", "#6C63FF", "#ff9800", "#228B22", "#b0b7c3"]
         for row, order in enumerate(data):
-            items = [
-                str(order['OrderID']),
-                str(order['Customer']),
-                f"₪{order['Amount']:,.2f}",
-                str(order['Status'])
-            ]
-            for col, item_text in enumerate(items):
-                item = QTableWidgetItem(item_text)
-                item.setTextAlignment(Qt.AlignCenter)
-                item.setFont(QFont(font_family, 12, QFont.Bold))
-                if col == 3:  # Status badge
-                    # No need to set background/foreground/font, delegate will handle
-                    item.setFlags(item.flags() & ~Qt.ItemIsSelectable)
-                table.setItem(row, col, item)
+            # No
+            item_no = QTableWidgetItem(str(row+1))
+            item_no.setTextAlignment(Qt.AlignCenter)
+            item_no.setFont(QFont("Segoe UI", 11))
+            table.setItem(row, 0, item_no)
+            # Customer name + Avatar
+            customer_name = str(order['Customer'])
+            customer_widget = QWidget()
+            hbox = QHBoxLayout(customer_widget)
+            hbox.setContentsMargins(0, 0, 0, 0)
+            hbox.setSpacing(8)
+            # Avatar
+            color_idx = int(hashlib.md5(customer_name.encode()).hexdigest(), 16) % len(color_palette)
+            bg_color = color_palette[color_idx]
+            first_letter = customer_name[0].upper() if customer_name else "?"
+            avatar_label = QLabel()
+            avatar_label.setFixedSize(24, 24)
+            avatar_label.setAlignment(Qt.AlignCenter)
+            avatar_label.setStyleSheet(f"background: {bg_color}; border-radius: 12px; color: #fff; font-size: 12px; font-weight: bold; border: 2px solid #fff;")
+            avatar_label.setText(first_letter)
+            # Name
+            name_label = QLabel(customer_name)
+            name_label.setFont(QFont("Segoe UI", 12, QFont.Bold))
+            name_label.setStyleSheet("color: #23272e; background: none; border: none;")
+            hbox.addWidget(avatar_label)
+            hbox.addWidget(name_label)
+            hbox.addStretch(1)
+            table.setCellWidget(row, 1, customer_widget)
+            # Amount
+            item_amount = QTableWidgetItem(f"₪{order['Amount']:,.2f}")
+            item_amount.setTextAlignment(Qt.AlignCenter)
+            item_amount.setFont(QFont("Segoe UI", 12, QFont.Bold))
+            table.setItem(row, 2, item_amount)
+            # Status (תגית צבעונית)
+            status = str(order['Status'])
+            status_bg, status_fg = status_colors.get(status, ("#e0e6ed", "#23272e"))
+            status_label = QLabel(status)
+            status_label.setAlignment(Qt.AlignCenter)
+            status_label.setStyleSheet(f"background: {status_bg}; color: {status_fg}; border-radius: 12px; padding: 2px 12px; font-size: 11px; font-weight: bold;")
+            table.setCellWidget(row, 3, status_label)
+            # Order Date (מתוך order)
+            order_date = order.get('OrderDate', '')
+            item_date = QTableWidgetItem(order_date)
+            item_date.setTextAlignment(Qt.AlignCenter)
+            item_date.setFont(QFont("Segoe UI", 11))
+            table.setItem(row, 4, item_date)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        # Set the custom delegate for the status column
-        table.setItemDelegateForColumn(3, StatusBadgeDelegate(status_colors, table))
-        return table
+        frame_layout.addWidget(table)
+        return table_frame
 
 class ModernSidebar(QFrame):
     def __init__(self, parent=None, nav_callbacks=None):
@@ -604,7 +639,7 @@ class ModernSidebar(QFrame):
         self.setObjectName("sidebar")
         self.setStyleSheet("""
             QFrame#sidebar {
-                background: #2d3436;
+                background: #1A2238;
                 min-width: 240px;
                 max-width: 240px;
             }
@@ -630,32 +665,73 @@ class ModernSidebar(QFrame):
             }
         """)
         self.nav_callbacks = nav_callbacks
+        self.collapsed = False
         self.init_ui()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
-        
-        # Logo and title
-        logo_layout = QHBoxLayout()
-        logo = QLabel()
-        pix = QPixmap(32, 32)
-        pix.fill(QColor("#43a047"))
-        logo.setPixmap(pix)
-        logo.setFixedSize(32, 32)
-        title = QLabel("Mush")
-        title.setFont(QFont("Segoe UI", 24, QFont.Bold))
-        title.setStyleSheet("color: #fff;")
-        logo_layout.addWidget(logo)
-        logo_layout.addWidget(title)
-        logo_layout.addStretch()
-        layout.addLayout(logo_layout)
-        layout.addSpacing(20)
-
+        # --- Modern Logo/Title Section ---
+        logo_frame = QFrame()
+        logo_frame.setStyleSheet("background: transparent;")
+        logo_layout = QVBoxLayout(logo_frame)
+        logo_layout.setContentsMargins(0, 24, 0, 0)
+        logo_layout.setSpacing(0)
+        # לוגו (שחור-לבן)
+        logo_icon = QLabel()
+        logo_icon.setAlignment(Qt.AlignHCenter)
+        logo_icon.setFixedSize(48, 48)
+        logo_path = os.path.join(os.path.dirname(__file__), "logo_blackAndWhite.png")
+        if os.path.exists(logo_path):
+            pix = QPixmap(logo_path)
+            pix = pix.scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            logo_icon.setPixmap(pix)
+        else:
+            logo_icon.setText("🌱")
+            logo_icon.setFont(QFont("Segoe UI Emoji", 32))
+            logo_icon.setStyleSheet("color: #fff;")
+        logo_layout.addWidget(logo_icon, alignment=Qt.AlignHCenter)
+        # כותרת MUSH
+        title = QLabel("MUSH")
+        title.setFont(QFont("Segoe UI", 22, QFont.Bold))
+        title.setStyleSheet("color: #fff; letter-spacing: 2px;")
+        title.setAlignment(Qt.AlignHCenter)
+        logo_layout.addWidget(title, alignment=Qt.AlignHCenter)
+        logo_layout.addSpacing(6)
+        # שורת minimize
+        min_row = QHBoxLayout()
+        min_row.setContentsMargins(0, 8, 0, 0)
+        min_row.setSpacing(0)
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setFrameShadow(QFrame.Plain)
+        line.setStyleSheet("color: #2e335a; background: #2e335a; min-height: 1px; max-height: 1px;")
+        line.setFixedWidth(90)
+        min_row.addWidget(line, stretch=0)
+        min_row.addStretch(1)
+        minimize_btn = QPushButton("< Minimize")
+        minimize_btn.setFixedHeight(22)
+        minimize_btn.setCursor(Qt.PointingHandCursor)
+        minimize_btn.setStyleSheet("background: none; color: #b0b7c3; font-size: 15px; border: none; font-weight: 400; padding-left: 10px; padding-right: 8px;")
+        minimize_btn.clicked.connect(self.toggle_collapse)
+        min_row.addWidget(minimize_btn, stretch=0, alignment=Qt.AlignRight)
+        logo_layout.addLayout(min_row)
+        layout.addWidget(logo_frame)
+        layout.addSpacing(10)
+        # --- הצג/הסתר כותרות בהתאם למצב ---
+        def update_logo_visibility():
+            if self.collapsed:
+                title.setVisible(False)
+                logo_icon.setVisible(True)
+            else:
+                title.setVisible(True)
+                logo_icon.setVisible(True)
+        update_logo_visibility()
+        self._update_logo_visibility = update_logo_visibility
         # Menu buttons
         self.buttons = []
-        menu_items = [
+        self.menu_items = [
             ("Dashboard", "dashboard", "📊"),
             ("Admin Dashboard", "admin_dashboard", "👑"),
             ("Orders", "orders", "📦"),
@@ -668,75 +744,42 @@ class ModernSidebar(QFrame):
             ("Live Simulation", "live_simulation", "🧪"),
             ("Settings", "settings", "⚙️")
         ]
-
-        for text, name, icon in menu_items:
+        for text, name, icon in self.menu_items:
             btn = QPushButton(f"{icon}  {text}")
             btn.setCheckable(True)
             btn.setProperty("page", name)
             btn.clicked.connect(lambda checked, b=btn: self.button_clicked(b))
             layout.addWidget(btn)
             self.buttons.append(btn)
-
         layout.addStretch()
 
-        # Back to Dashboard button
-        back_btn = QPushButton("↩️  Back to Dashboard")
-        back_btn.setStyleSheet("""
-            QPushButton {
-                color: #3498db;
-                margin: 10px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background: #2d3436;
-                color: #2980b9;
-            }
-        """)
-        back_btn.clicked.connect(lambda: self.button_clicked(self.buttons[0]))
-        layout.addWidget(back_btn)
-
-        # Logout button
-        logout_btn = QPushButton("🚪  Logout")
-        logout_btn.setObjectName("logout_btn")
-        logout_btn.setStyleSheet("""
-            QPushButton {
-                color: #ff7675;
-                margin: 10px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background: #2d3436;
-                color: #e74c3c;
-            }
-            QPushButton:disabled {
-                color: #a0a0a0;
-                background: #2d3436;
-            }
-        """)
-        logout_btn.clicked.connect(self.logout)
-        layout.addWidget(logout_btn)
+    def toggle_collapse(self):
+        self.collapsed = not self.collapsed
+        if self.collapsed:
+            self.setFixedWidth(60)
+            for i, btn in enumerate(self.buttons):
+                icon = self.menu_items[i][2]
+                btn.setText(icon)
+                btn.setIcon(QIcon())
+                btn.setStyleSheet("font-size: 20px; color: #fff; background: none; border: none; text-align: center; padding: 15px 0px;")
+            self.update()
+        else:
+            self.setFixedWidth(240)
+            for i, btn in enumerate(self.buttons):
+                text = self.menu_items[i][0]
+                icon = self.menu_items[i][2]
+                btn.setText(f"{icon}  {text}")
+                btn.setStyleSheet("")
+            self.update()
+        # עדכן הצגת כותרות/לוגו
+        if hasattr(self, '_update_logo_visibility'):
+            self._update_logo_visibility()
 
     def button_clicked(self, button):
         for btn in self.buttons:
             btn.setChecked(btn == button)
         if self.nav_callbacks and button.property("page") in self.nav_callbacks:
             self.nav_callbacks[button.property("page")]()
-
-    def logout(self):
-        # Disable the logout button to prevent multiple clicks
-        sender = self.sender()
-        if sender:
-            sender.setEnabled(False)
-            sender.setText("Logging out...")
-        
-        # Disable all navigation buttons during logout
-        for btn in self.buttons:
-            btn.setEnabled(False)
-        
-        # Use timer to show loading and then logout
-        QTimer.singleShot(1000, self.parent().handle_logout)
 
 class Main_gui(QMainWindow):
     def __init__(self, user_data):
@@ -941,6 +984,115 @@ class Main_gui(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
         main_layout.addWidget(title_bar)
+        # --- Modern Header Bar ---
+        header_bar = QFrame()
+        header_bar.setObjectName("headerBar")
+        header_bar.setStyleSheet('''
+            QFrame#headerBar {
+                background: #fff;
+                min-height: 64px;
+                max-height: 64px;
+                border-bottom: 1.5px solid #f0f1f3;
+                border-radius: 0 0 18px 0;
+                box-shadow: 0 2px 12px rgba(44,62,80,0.04);
+            }
+        ''')
+        header_layout = QHBoxLayout(header_bar)
+        header_layout.setContentsMargins(32, 0, 32, 0)
+        header_layout.setSpacing(18)
+        # Welcome text
+        username = self.user_data.get('username', 'Admin')
+        welcome_label = QLabel(f"Welcome Back, {username} 👋")
+        welcome_label.setFont(QFont("Segoe UI", 20, QFont.Bold))
+        welcome_label.setStyleSheet("color: #23272e; margin-right: 8px;")
+        header_layout.addWidget(welcome_label, alignment=Qt.AlignVCenter)
+        # Spacer
+        header_layout.addStretch(1)
+        # Chat button
+        chat_btn = QPushButton()
+        chat_btn.setObjectName("chatBtn")
+        chat_btn.setCursor(Qt.PointingHandCursor)
+        chat_btn.setFixedSize(38, 38)
+        chat_btn.setStyleSheet('''
+            QPushButton#chatBtn {
+                background: #25d366;
+                border-radius: 19px;
+                color: white;
+                font-size: 20px;
+                border: none;
+            }
+            QPushButton#chatBtn:hover {
+                background: #128c7e;
+            }
+        ''')
+        chat_btn.setText("💬")
+        chat_btn.clicked.connect(self.open_chat)
+        header_layout.addWidget(chat_btn, alignment=Qt.AlignVCenter)
+        # Notification bell (reuse existing)
+        self.bell_btn.setParent(header_bar)
+        self.bell_btn.setStyleSheet(self.bell_btn.styleSheet() + "QToolButton { margin-left: 8px; margin-right: 8px; }")
+        header_layout.addWidget(self.bell_btn, alignment=Qt.AlignVCenter)
+        # Avatar + menu
+        avatar_btn = QToolButton()
+        avatar_btn.setObjectName("avatarBtn")
+        avatar_btn.setCursor(Qt.PointingHandCursor)
+        avatar_btn.setFixedSize(40, 40)
+        avatar_btn.setStyleSheet('''
+            QToolButton#avatarBtn {
+                background: #e3f8f3;
+                border-radius: 20px;
+                border: 2px solid #fff;
+                padding: 0;
+            }
+        ''')
+        # Try to load user image, else initials
+        avatar_pix = None
+        user_img_path = os.path.join(os.path.dirname(__file__), "user_avatar.png")
+        if os.path.exists(user_img_path):
+            avatar_pix = QPixmap(user_img_path).scaled(40, 40, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        if avatar_pix:
+            avatar_btn.setIcon(QIcon(avatar_pix))
+            avatar_btn.setIconSize(QSize(40, 40))
+        else:
+            initials = ''.join([w[0] for w in username.split()][:2]).upper()
+            avatar_btn.setText(initials)
+            avatar_btn.setFont(QFont("Segoe UI", 15, QFont.Bold))
+            avatar_btn.setStyleSheet(avatar_btn.styleSheet() + "color: #23272e;")
+        # Menu
+        avatar_menu = QMenu(self)
+        avatar_menu.setStyleSheet('''
+            QMenu {
+                background: #fff;
+                color: #23272e;
+                border-radius: 10px;
+                padding: 8px 0;
+                font-size: 15px;
+                min-width: 180px;
+                box-shadow: 0 2px 12px rgba(44,62,80,0.08);
+            }
+            QMenu::item {
+                padding: 10px 22px;
+                border-radius: 6px;
+            }
+            QMenu::item:selected {
+                background: #e3f8f3;
+                color: #43d39e;
+            }
+        ''')
+        settings_action = QAction("Settings", self)
+        settings_action.triggered.connect(self.show_settings)
+        user_mgmt_action = QAction("User Management", self)
+        user_mgmt_action.triggered.connect(self.show_user_management)
+        logout_action = QAction("Logout", self)
+        logout_action.triggered.connect(self.handle_logout)
+        avatar_menu.addAction(settings_action)
+        avatar_menu.addAction(user_mgmt_action)
+        avatar_menu.addSeparator()
+        avatar_menu.addAction(logout_action)
+        avatar_btn.setMenu(avatar_menu)
+        avatar_btn.setPopupMode(QToolButton.InstantPopup)
+        header_layout.addWidget(avatar_btn, alignment=Qt.AlignVCenter)
+        main_layout.addWidget(header_bar)
         # Content area
         content_frame = QFrame()
         content_layout = QHBoxLayout(content_frame)
@@ -949,6 +1101,12 @@ class Main_gui(QMainWindow):
         # Sidebar
         self.sidebar = ModernSidebar(self, self.nav_callbacks)
         content_layout.addWidget(self.sidebar)
+        # Main content vertical layout (header + content)
+        main_content_widget = QWidget()
+        main_content_layout = QVBoxLayout(main_content_widget)
+        main_content_layout.setContentsMargins(0, 0, 0, 0)
+        main_content_layout.setSpacing(0)
+        main_content_layout.addWidget(header_bar)
         # Content area
         self.content_area = QStackedWidget()
         self.content_area.setStyleSheet("""
@@ -956,7 +1114,8 @@ class Main_gui(QMainWindow):
                 background: #f5f6fa;
             }
         """)
-        content_layout.addWidget(self.content_area)
+        main_content_layout.addWidget(self.content_area)
+        content_layout.addWidget(main_content_widget)
         main_layout.addWidget(content_frame)
         # Initialize all pages
         self.init_pages()
@@ -1391,9 +1550,8 @@ class Main_gui(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    
-    # Create Main Window
-    main_window = Main_gui()
+    # דוגמה ל-user_data בסיסי
+    user_data = {"username": "admin", "role": "admin"}
+    main_window = Main_gui(user_data)
     main_window.show()
-
     sys.exit(app.exec_())

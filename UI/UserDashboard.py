@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QFrame, QScrollArea, QMessageBox, QDialog, QStackedWidget, QSizePolicy, QMainWindow, QSpacerItem
+    QFrame, QScrollArea, QMessageBox, QDialog, QStackedWidget, QSizePolicy, QMainWindow, QSpacerItem, QToolButton, QMenu, QAction
 )
 from PyQt5.QtGui import QFont, QIcon, QColor, QPixmap
 from PyQt5.QtCore import Qt, QSize, QPoint, QTimer
@@ -15,145 +15,153 @@ from LoadingWindow import LoadingWindow
 from SimpleLoadingWindow import SimpleLoadingWindow
 import os
 
-class Sidebar(QFrame):
-    def __init__(self, parent=None):
+class ModernSidebar(QFrame):
+    def __init__(self, parent=None, nav_callbacks=None):
         super().__init__(parent)
-        self.setFixedWidth(220)
+        self.setObjectName("sidebar")
         self.setStyleSheet("""
-            QFrame {
-                background: #23272e;
-                border-right: 1px solid #222;
+            QFrame#sidebar {
+                background: #1A2238;
+                min-width: 240px;
+                max-width: 240px;
             }
             QPushButton {
-                text-align: left;
-                padding: 15px;
+                color: #fff;
                 border: none;
+                text-align: left;
+                padding: 15px 25px;
                 font-size: 15px;
-                color: #e0e0e0;
-                background: transparent;
+                font-weight: 600;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                border-radius: 8px;
+                margin: 2px 10px;
             }
             QPushButton:hover {
-                background: #2e7d32;
-                color: #fff;
+                background: #353b48;
+                color: #f1c40f;
             }
             QPushButton:checked {
                 background: #43a047;
-                color: #fff;
-                border-left: 4px solid #fff;
+                color: white;
+                font-weight: bold;
             }
         """)
+        self.nav_callbacks = nav_callbacks
+        self.collapsed = False
         self.init_ui()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        # Logo and title
-        logo_layout = QHBoxLayout()
-        logo = QLabel()
-        pix = QPixmap(32, 32)
-        pix.fill(QColor("#43a047"))
-        logo.setPixmap(pix)
-        logo.setFixedSize(32, 32)
-        title = QLabel("Mush")
+        layout.setSpacing(8)
+        # --- Modern Logo/Title Section ---
+        logo_frame = QFrame()
+        logo_frame.setStyleSheet("background: transparent;")
+        logo_layout = QVBoxLayout(logo_frame)
+        logo_layout.setContentsMargins(0, 24, 0, 0)
+        logo_layout.setSpacing(0)
+        # לוגו (שחור-לבן)
+        logo_icon = QLabel()
+        logo_icon.setAlignment(Qt.AlignHCenter)
+        logo_icon.setFixedSize(48, 48)
+        logo_path = os.path.join(os.path.dirname(__file__), "logo_blackAndWhite.png")
+        if os.path.exists(logo_path):
+            pix = QPixmap(logo_path)
+            pix = pix.scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            logo_icon.setPixmap(pix)
+        else:
+            logo_icon.setText("🌱")
+            logo_icon.setFont(QFont("Segoe UI Emoji", 32))
+            logo_icon.setStyleSheet("color: #fff;")
+        logo_layout.addWidget(logo_icon, alignment=Qt.AlignHCenter)
+        # כותרת MUSH
+        title = QLabel("MUSH")
         title.setFont(QFont("Segoe UI", 22, QFont.Bold))
-        title.setStyleSheet("color: #fff;")
-        logo_layout.addWidget(logo)
-        logo_layout.addWidget(title)
-        logo_layout.addStretch()
-        layout.addLayout(logo_layout)
-        layout.addSpacing(18)
-
-        # Menu buttons with emojis
+        title.setStyleSheet("color: #fff; letter-spacing: 2px;")
+        title.setAlignment(Qt.AlignHCenter)
+        logo_layout.addWidget(title, alignment=Qt.AlignHCenter)
+        logo_layout.addSpacing(6)
+        # שורת minimize
+        min_row = QHBoxLayout()
+        min_row.setContentsMargins(0, 8, 0, 0)
+        min_row.setSpacing(0)
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setFrameShadow(QFrame.Plain)
+        line.setStyleSheet("color: #2e335a; background: #2e335a; min-height: 1px; max-height: 1px;")
+        line.setFixedWidth(90)
+        min_row.addWidget(line, stretch=0)
+        min_row.addStretch(1)
+        minimize_btn = QPushButton("< Minimize")
+        minimize_btn.setFixedHeight(22)
+        minimize_btn.setCursor(Qt.PointingHandCursor)
+        minimize_btn.setStyleSheet("background: none; color: #b0b7c3; font-size: 15px; border: none; font-weight: 400; padding-left: 10px; padding-right: 8px;")
+        minimize_btn.clicked.connect(self.toggle_collapse)
+        min_row.addWidget(minimize_btn, stretch=0, alignment=Qt.AlignRight)
+        logo_layout.addLayout(min_row)
+        layout.addWidget(logo_frame)
+        layout.addSpacing(10)
+        # --- הצג/הסתר כותרות בהתאם למצב ---
+        def update_logo_visibility():
+            if self.collapsed:
+                title.setVisible(False)
+                logo_icon.setVisible(True)
+            else:
+                title.setVisible(True)
+                logo_icon.setVisible(True)
+        update_logo_visibility()
+        self._update_logo_visibility = update_logo_visibility
+        # Menu buttons
         self.buttons = []
-        menu_items = [
-            ("Dashboard", "dashboard", "🏠"),
+        self.menu_items = [
+            ("Dashboard", "dashboard", "📊"),
             ("Orders", "orders", "📦"),
-            ("Growing Beds", "growing_beds", "🌱"),
+            ("Growing Beds", "growing_beds", "🛏️"),
             ("Customers", "customers", "👥"),
             ("Warehouse", "warehouse", "🏪"),
             ("Farm Visual", "farm_visual", "🌾"),
             ("Analytics", "analytics", "📈")
         ]
-        for text, name, emoji in menu_items:
-            btn = QPushButton(f"{emoji}  {text}")
+        for text, name, icon in self.menu_items:
+            btn = QPushButton(f"{icon}  {text}")
             btn.setCheckable(True)
             btn.setProperty("page", name)
             btn.clicked.connect(lambda checked, b=btn: self.button_clicked(b))
             layout.addWidget(btn)
             self.buttons.append(btn)
         layout.addStretch()
-        # Logout button
-        logout_btn = QPushButton("🚪  Logout")
-        logout_btn.setObjectName("logout_btn")
-        logout_btn.setStyleSheet("""
-            QPushButton {
-                color: #ff7675;
-                margin: 10px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background: #2d3436;
-            }
-            QPushButton:disabled {
-                color: #a0a0a0;
-                background: #2d3436;
-            }
-        """)
-        logout_btn.clicked.connect(self.logout)
-        layout.addWidget(logout_btn)
+
+    def toggle_collapse(self):
+        self.collapsed = not self.collapsed
+        if self.collapsed:
+            self.setFixedWidth(60)
+            for i, btn in enumerate(self.buttons):
+                icon = self.menu_items[i][2]
+                btn.setText(icon)
+                btn.setIcon(QIcon())
+                btn.setStyleSheet("font-size: 20px; color: #fff; background: none; border: none; text-align: center; padding: 15px 0px;")
+            self.update()
+        else:
+            self.setFixedWidth(240)
+            for i, btn in enumerate(self.buttons):
+                text = self.menu_items[i][0]
+                icon = self.menu_items[i][2]
+                btn.setText(f"{icon}  {text}")
+                btn.setStyleSheet("")
+            self.update()
+        # עדכן הצגת כותרות/לוגו
+        if hasattr(self, '_update_logo_visibility'):
+            self._update_logo_visibility()
 
     def button_clicked(self, button):
         for btn in self.buttons:
             btn.setChecked(btn == button)
-        # Find the QMainWindow parent
+        # מצא את QMainWindow ההורה
         win = self.parent()
         while win and not hasattr(win, 'change_page'):
             win = win.parent()
         if win and hasattr(win, 'change_page'):
             win.change_page(button.property("page"))
-
-    def logout(self):
-        """Handle logout with loading indicator"""
-        # Disable all buttons during logout
-        for btn in self.buttons:
-            btn.setEnabled(False)
-        
-        # Find logout button and update it
-        logout_btn = self.findChild(QPushButton, "logout_btn")
-        if logout_btn:
-            logout_btn.setText("Logging out...")
-            logout_btn.setEnabled(False)
-        
-        # Use timer to simulate logout process
-        QTimer.singleShot(1000, self.complete_logout)
-        
-    def complete_logout(self):
-        """Complete the logout process"""
-        # Show loading window
-        loading_window = SimpleLoadingWindow()
-        loading_window.show()
-        
-        # Close current window after a short delay
-        QTimer.singleShot(1000, lambda: self.finish_logout(loading_window))
-        
-    def finish_logout(self, loading_window):
-        """Finish the logout process"""
-        from user_management import UserManagement
-        win = self.parent()
-        while win and not hasattr(win, 'username'):
-            win = win.parent()
-        if win and hasattr(win, 'username'):
-            UserManagement.logout_user(win.username)
-        if win:
-            win.close()
-        
-        # Close loading window and show login
-        loading_window.close()
-        from LoginGUI import LoginGUI
-        login = LoginGUI()
-        login.show()
 
 class KpiCard(QFrame):
     def __init__(self, title, value, icon, color):
@@ -238,9 +246,14 @@ class UserDashboard(QMainWindow):
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(8, 0, 8, 0)
         logo = QLabel()
-        pix = QPixmap(32, 32)
-        pix.fill(QColor("#43a047"))
-        logo.setPixmap(pix)
+        logo_path = os.path.join(os.path.dirname(__file__), "logo_without_white.png")
+        if os.path.exists(logo_path):
+            pix = QPixmap(logo_path)
+            pix = pix.scaled(32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            logo.setPixmap(pix)
+        else:
+            logo.setText("🍄")
+            logo.setFont(QFont("Segoe UI Emoji", 22))
         logo.setFixedSize(32, 32)
         title_layout.addWidget(logo)
         title_label = QLabel(f"Mush | User Dashboard - {self.username}")
@@ -272,16 +285,129 @@ class UserDashboard(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
         main_layout.addWidget(title_bar)
+        # --- Modern Header Bar ---
+        header_bar = QFrame()
+        header_bar.setObjectName("headerBar")
+        header_bar.setStyleSheet('''
+            QFrame#headerBar {
+                background: #fff;
+                min-height: 64px;
+                max-height: 64px;
+                border-bottom: 1.5px solid #f0f1f3;
+                border-radius: 0 0 18px 0;
+                box-shadow: 0 2px 12px rgba(44,62,80,0.04);
+            }
+        ''')
+        header_layout = QHBoxLayout(header_bar)
+        header_layout.setContentsMargins(32, 0, 32, 0)
+        header_layout.setSpacing(18)
+        # Welcome text
+        username = self.username
+        welcome_label = QLabel(f"Welcome Back, {username} 👋")
+        welcome_label.setFont(QFont("Segoe UI", 20, QFont.Bold))
+        welcome_label.setStyleSheet("color: #23272e; margin-right: 8px;")
+        header_layout.addWidget(welcome_label, alignment=Qt.AlignVCenter)
+        # Spacer
+        header_layout.addStretch(1)
+        # Chat button
+        chat_btn = QPushButton()
+        chat_btn.setObjectName("chatBtn")
+        chat_btn.setCursor(Qt.PointingHandCursor)
+        chat_btn.setFixedSize(38, 38)
+        chat_btn.setStyleSheet('''
+            QPushButton#chatBtn {
+                background: #25d366;
+                border-radius: 19px;
+                color: white;
+                font-size: 20px;
+                border: none;
+            }
+            QPushButton#chatBtn:hover {
+                background: #128c7e;
+            }
+        ''')
+        chat_btn.setText("💬")
+        chat_btn.clicked.connect(self.open_chat)
+        header_layout.addWidget(chat_btn, alignment=Qt.AlignVCenter)
+        # Notification bell (reuse existing)
+        # (פשוט לא לממש אם אין)
+        # Avatar + menu
+        avatar_btn = QToolButton()
+        avatar_btn.setObjectName("avatarBtn")
+        avatar_btn.setCursor(Qt.PointingHandCursor)
+        avatar_btn.setFixedSize(40, 40)
+        avatar_btn.setStyleSheet('''
+            QToolButton#avatarBtn {
+                background: #e3f8f3;
+                border-radius: 20px;
+                border: 2px solid #fff;
+                padding: 0;
+            }
+        ''')
+        # Try to load user image, else initials
+        avatar_pix = None
+        user_img_path = os.path.join(os.path.dirname(__file__), "user_avatar.png")
+        if os.path.exists(user_img_path):
+            avatar_pix = QPixmap(user_img_path).scaled(40, 40, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        if avatar_pix:
+            avatar_btn.setIcon(QIcon(avatar_pix))
+            avatar_btn.setIconSize(QSize(40, 40))
+        else:
+            initials = ''.join([w[0] for w in username.split()][:2]).upper()
+            avatar_btn.setText(initials)
+            avatar_btn.setFont(QFont("Segoe UI", 15, QFont.Bold))
+            avatar_btn.setStyleSheet(avatar_btn.styleSheet() + "color: #23272e;")
+        # Menu
+        avatar_menu = QMenu(self)
+        avatar_menu.setStyleSheet('''
+            QMenu {
+                background: #fff;
+                color: #23272e;
+                border-radius: 10px;
+                padding: 8px 0;
+                font-size: 15px;
+                min-width: 180px;
+                box-shadow: 0 2px 12px rgba(44,62,80,0.08);
+            }
+            QMenu::item {
+                padding: 10px 22px;
+                border-radius: 6px;
+            }
+            QMenu::item:selected {
+                background: #e3f8f3;
+                color: #43d39e;
+            }
+        ''')
+        settings_action = QAction("Settings", self)
+        settings_action.triggered.connect(self.open_settings)
+        logout_action = QAction("Logout", self)
+        logout_action.triggered.connect(self.logout)
+        avatar_menu.addAction(settings_action)
+        avatar_menu.addSeparator()
+        avatar_menu.addAction(logout_action)
+        avatar_btn.setMenu(avatar_menu)
+        avatar_btn.setPopupMode(QToolButton.InstantPopup)
+        header_layout.addWidget(avatar_btn, alignment=Qt.AlignVCenter)
+        main_layout.addWidget(header_bar)
         # Content area
         content_frame = QFrame()
         content_layout = QHBoxLayout(content_frame)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(0)
-        self.sidebar = Sidebar(self)
+        # Sidebar
+        self.sidebar = ModernSidebar(self)
         content_layout.addWidget(self.sidebar)
+        # Main content vertical layout (header + content)
+        main_content_widget = QWidget()
+        main_content_layout = QVBoxLayout(main_content_widget)
+        main_content_layout.setContentsMargins(0, 0, 0, 0)
+        main_content_layout.setSpacing(0)
+        main_content_layout.addWidget(header_bar)
+        # Content area
         self.content = QStackedWidget()
         self.content.setStyleSheet("background: #f8fafc;")
-        content_layout.addWidget(self.content)
+        main_content_layout.addWidget(self.content)
+        content_layout.addWidget(main_content_widget)
         main_layout.addWidget(content_frame)
         self.init_pages()
         self.change_page("dashboard")
@@ -437,3 +563,21 @@ class UserDashboard(QMainWindow):
     def set_font(self):
         # Implementation of set_font method
         pass 
+
+    def open_settings(self):
+        self.change_page("settings")
+
+    def logout(self):
+        from SimpleLoadingWindow import SimpleLoadingWindow
+        loading_window = SimpleLoadingWindow()
+        loading_window.show()
+        QTimer.singleShot(1000, lambda: self.finish_logout(loading_window))
+
+    def finish_logout(self, loading_window):
+        from user_management import UserManagement
+        UserManagement.logout_user(self.username)
+        self.close()
+        loading_window.close()
+        from LoginGUI import LoginGUI
+        login = LoginGUI()
+        login.show() 
