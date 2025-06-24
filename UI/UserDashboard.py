@@ -114,19 +114,40 @@ class ModernSidebar(QFrame):
         # Menu buttons
         self.buttons = []
         self.menu_items = [
-            ("Dashboard", "dashboard", "📊"),
-            ("Orders", "orders", "📦"),
-            ("Growing Beds", "growing_beds", "🛏️"),
-            ("Customers", "customers", "👥"),
-            ("Warehouse", "warehouse", "🏪"),
-            ("Farm Visual", "farm_visual", "🌾"),
-            ("Analytics", "analytics", "📈")
+            ("Dashboard", "dashboard", "Dashboard.png"),
+            ("Orders", "orders", "Orders.png"),
+            ("Growing Beds", "growing_beds", "Growing Beds.png"),
+            ("Customers", "customers", "Customers.png"),
+            ("Warehouse", "warehouse", "Warehouse.png"),
+            ("Farm Visual", "farm_visual", "Farm Visual.png"),
+            ("Analytics", "analytics", "Analytics.png")
         ]
-        for text, name, icon in self.menu_items:
-            btn = QPushButton(f"{icon}  {text}")
+        for text, name, icon_file in self.menu_items:
+            btn = QPushButton()
             btn.setCheckable(True)
             btn.setProperty("page", name)
             btn.clicked.connect(lambda checked, b=btn: self.button_clicked(b))
+            
+            # Load icon from file
+            icon_path = os.path.join(os.path.dirname(__file__), "Menu icons", icon_file)
+            if os.path.exists(icon_path):
+                icon = QIcon(icon_path)
+                btn.setIcon(icon)
+                btn.setIconSize(QSize(24, 24))
+                btn.setText(f"  {text}")
+            else:
+                # Fallback to emoji if icon file not found
+                fallback_icons = {
+                    "Dashboard": "📊",
+                    "Orders": "📦", 
+                    "Growing Beds": "🛏️",
+                    "Customers": "👥",
+                    "Warehouse": "🏪",
+                    "Farm Visual": "🌾",
+                    "Analytics": "📈"
+                }
+                btn.setText(f"{fallback_icons.get(text, '📋')}  {text}")
+            
             layout.addWidget(btn)
             self.buttons.append(btn)
         layout.addStretch()
@@ -134,21 +155,66 @@ class ModernSidebar(QFrame):
     def toggle_collapse(self):
         self.collapsed = not self.collapsed
         if self.collapsed:
-            self.setFixedWidth(60)
+            self.setFixedWidth(80)
             for i, btn in enumerate(self.buttons):
-                icon = self.menu_items[i][2]
-                btn.setText(icon)
-                btn.setIcon(QIcon())
+                icon_file = self.menu_items[i][2]
+                icon_path = os.path.join(os.path.dirname(__file__), "Menu icons", icon_file)
+                if os.path.exists(icon_path):
+                    btn.setIcon(QIcon(icon_path))
+                    btn.setIconSize(QSize(28, 28))
+                    btn.setText("")
+                else:
+                    # Fallback to emoji
+                    fallback_icons = {
+                        "Dashboard": "📊",
+                        "Orders": "📦", 
+                        "Growing Beds": "🛏️",
+                        "Customers": "👥",
+                        "Warehouse": "🏪",
+                        "Farm Visual": "🌾",
+                        "Analytics": "📈"
+                    }
+                    text = self.menu_items[i][0]
+                    btn.setText(fallback_icons.get(text, "📋"))
+                    btn.setIcon(QIcon())
                 btn.setStyleSheet("font-size: 20px; color: #fff; background: none; border: none; text-align: center; padding: 15px 0px;")
-            self.update()
+            
+            # עדכן את כפתור ה-Minimize
+            for child in self.findChildren(QPushButton):
+                if child.text() == "< Minimize":
+                    child.setText("> Expand")
+                    break
         else:
             self.setFixedWidth(240)
             for i, btn in enumerate(self.buttons):
                 text = self.menu_items[i][0]
-                icon = self.menu_items[i][2]
-                btn.setText(f"{icon}  {text}")
+                icon_file = self.menu_items[i][2]
+                icon_path = os.path.join(os.path.dirname(__file__), "Menu icons", icon_file)
+                if os.path.exists(icon_path):
+                    btn.setIcon(QIcon(icon_path))
+                    btn.setIconSize(QSize(24, 24))
+                    btn.setText(f"  {text}")
+                else:
+                    # Fallback to emoji
+                    fallback_icons = {
+                        "Dashboard": "📊",
+                        "Orders": "📦", 
+                        "Growing Beds": "🛏️",
+                        "Customers": "👥",
+                        "Warehouse": "🏪",
+                        "Farm Visual": "🌾",
+                        "Analytics": "📈"
+                    }
+                    btn.setText(f"{fallback_icons.get(text, '📋')}  {text}")
+                    btn.setIcon(QIcon())
                 btn.setStyleSheet("")
-            self.update()
+            
+            # עדכן את כפתור ה-Minimize
+            for child in self.findChildren(QPushButton):
+                if child.text() == "> Expand":
+                    child.setText("< Minimize")
+                    break
+        self.update()
         # עדכן הצגת כותרות/לוגו
         if hasattr(self, '_update_logo_visibility'):
             self._update_logo_visibility()
