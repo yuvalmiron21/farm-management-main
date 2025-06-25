@@ -155,6 +155,10 @@ class GrowingBedGUI(QMainWindow):
         self.delete_button.clicked.connect(self.delete_growing_bed)
         button_layout.addWidget(self.delete_button)
 
+        self.refresh_button = QPushButton("🔄 Refresh")
+        self.refresh_button.clicked.connect(self.load_growing_beds)
+        button_layout.addWidget(self.refresh_button)
+
         self.main_layout.addLayout(button_layout)
 
         # Set main layout
@@ -291,6 +295,13 @@ class GrowingBedGUI(QMainWindow):
                 "CO2Level": co2_level,
                 "Humidity": humidity,
                 "CurrentGrowthStage": growth_stage,
+                "Name": f"Bed {bed_id[:6]}",
+                "Location": "N/A",
+                "Size": 0.0,
+                "CropType": "",
+                "PlantingDate": "",
+                "HarvestDate": "",
+                "Temperature": 0,
                 "LastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
             ref = db.reference("GrowingBed")
@@ -335,6 +346,13 @@ class GrowingBedGUI(QMainWindow):
                 "CO2Level": co2_level,
                 "Humidity": humidity,
                 "CurrentGrowthStage": growth_stage,
+                "Name": f"Bed {bed_id[:6]}",
+                "Location": "N/A",
+                "Size": 0.0,
+                "CropType": "",
+                "PlantingDate": "",
+                "HarvestDate": "",
+                "Temperature": 0,
                 "LastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
             ref = db.reference(f"GrowingBed/{bed_id}")

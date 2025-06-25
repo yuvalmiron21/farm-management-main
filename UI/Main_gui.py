@@ -373,15 +373,6 @@ class SettingsDialog(QDialog):
         title.setFont(QFont("Segoe UI", 20, QFont.Bold))
         title.setStyleSheet("color: #23272e; margin-bottom: 8px;")
         card_layout.addWidget(title, alignment=Qt.AlignHCenter)
-        # Language
-        lang_label = QLabel("Language")
-        lang_label.setFont(QFont("Segoe UI", 13, QFont.Bold))
-        lang_label.setStyleSheet("color: #23272e; margin-bottom: 2px;")
-        card_layout.addWidget(lang_label)
-        self.lang_combo = QComboBox()
-        self.lang_combo.addItems(["English", "עברית", "العربية"])
-        self.lang_combo.setStyleSheet("font-size: 14px; padding: 8px;")
-        card_layout.addWidget(self.lang_combo)
         # Theme
         theme_label = QLabel("Theme")
         theme_label.setFont(QFont("Segoe UI", 13, QFont.Bold))
@@ -389,7 +380,7 @@ class SettingsDialog(QDialog):
         card_layout.addWidget(theme_label)
         self.theme_combo = QComboBox()
         self.theme_combo.addItems(["Light", "Dark"])
-        self.theme_combo.setStyleSheet("font-size: 14px; padding: 8px;")
+        self.theme_combo.setStyleSheet("font-size: 14px; padding: 8px; border: none; background: #f5f6fa;")
         card_layout.addWidget(self.theme_combo)
         # Notifications
         notif_label = QLabel("Notifications")
@@ -412,6 +403,7 @@ class SettingsDialog(QDialog):
                 font-size: 15px;
                 font-weight: bold;
                 padding: 10px 32px;
+                border: none;
             }
             QPushButton:hover {
                 background: #228B22;
@@ -428,6 +420,7 @@ class SettingsDialog(QDialog):
                 font-size: 15px;
                 font-weight: bold;
                 padding: 10px 32px;
+                border: none;
             }
             QPushButton:hover {
                 background: #b0b7c3;
@@ -447,24 +440,18 @@ class SettingsDialog(QDialog):
 
     def load_settings(self):
         settings = QSettings("MushFarm", "FarmManagement")
-        lang = settings.value("language", "English")
         theme = settings.value("theme", "Light")
         notifications = settings.value("notifications", "true") == "true"
-        self.lang_combo.setCurrentText(lang)
         self.theme_combo.setCurrentText(theme)
         self.notif_checkbox.setChecked(notifications)
 
     def save_settings(self):
         settings = QSettings("MushFarm", "FarmManagement")
-        lang = self.lang_combo.currentText()
         theme = self.theme_combo.currentText()
         notifications = self.notif_checkbox.isChecked()
-        settings.setValue("language", lang)
         settings.setValue("theme", theme)
         settings.setValue("notifications", "true" if notifications else "false")
         main_win = self.parentWidget()
-        if hasattr(main_win, 'change_language'):
-            main_win.change_language(lang)
         if hasattr(main_win, 'change_theme'):
             main_win.change_theme(theme.lower())
         QMessageBox.information(self, "Settings", "Settings saved successfully!")
@@ -1877,10 +1864,19 @@ class Main_gui(QMainWindow):
     def change_theme(self, theme):
         if theme.lower() == 'dark':
             self.setStyleSheet("""
-                QMainWindow { background: #23272e; color: #fff; }
+                QMainWindow { background: #001f3f; color: #fff; }
                 QLabel, QPushButton, QComboBox, QLineEdit, QTableWidget, QHeaderView::section, QTableWidget::item, QMenu, QToolButton {
                     color: #fff;
-                    background: #23272e;
+                    background: #001f3f;
+                    border: none;
+                }
+                QFrame {
+                    background: #003366;
+                    border-radius: 18px;
+                    border: none;
+                }
+                QCheckBox {
+                    color: #fff;
                 }
             """)
         else:
@@ -1889,6 +1885,15 @@ class Main_gui(QMainWindow):
                 QLabel, QPushButton, QComboBox, QLineEdit, QTableWidget, QHeaderView::section, QTableWidget::item, QMenu, QToolButton {
                     color: #23272e;
                     background: #fff;
+                    border: none;
+                }
+                QFrame {
+                    background: #fff;
+                    border-radius: 18px;
+                    border: 1.5px solid #e0e6ed;
+                }
+                QCheckBox {
+                    color: #23272e;
                 }
             """)
     def change_language(self, lang):

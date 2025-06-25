@@ -4,7 +4,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QTableWidget, QTableWidgetItem,
     QMessageBox, QHBoxLayout, QInputDialog, QHeaderView, QFrame, QSizePolicy,
-    QLineEdit, QComboBox, QDialog, QFormLayout, QDialogButtonBox, QDateEdit, QDoubleSpinBox, QSpinBox
+    QLineEdit, QComboBox, QDialog, QFormLayout, QDialogButtonBox, QDateEdit, QDoubleSpinBox, QSpinBox,
+    QCompleter
 )
 from PyQt5.QtCore import Qt, QTimer, QDate
 from PyQt5.QtGui import QFont, QColor, QPalette
@@ -119,7 +120,26 @@ class OrderGUI(QWidget):
             }
         """)
         self.status_filter.currentTextChanged.connect(self.filter_orders)
-        
+
+        # --- Date range filter ---
+        self.from_date = QDateEdit()
+        self.from_date.setCalendarPopup(True)
+        self.from_date.setDisplayFormat("yyyy-MM-dd")
+        self.from_date.setDate(QDate(2000, 1, 1))
+        self.from_date.setStyleSheet("padding: 8px; border-radius: 5px; border: 1px solid #dcdcdc; font-size: 14px;")
+        self.from_date.dateChanged.connect(self.filter_orders)
+        self.to_date = QDateEdit()
+        self.to_date.setCalendarPopup(True)
+        self.to_date.setDisplayFormat("yyyy-MM-dd")
+        self.to_date.setDate(QDate.currentDate())
+        self.to_date.setStyleSheet("padding: 8px; border-radius: 5px; border: 1px solid #dcdcdc; font-size: 14px;")
+        self.to_date.dateChanged.connect(self.filter_orders)
+        search_layout.addWidget(QLabel("From:"))
+        search_layout.addWidget(self.from_date)
+        search_layout.addWidget(QLabel("To:"))
+        search_layout.addWidget(self.to_date)
+        # --- End date range filter ---
+
         search_layout.addWidget(self.search_input)
         search_layout.addWidget(self.status_filter)
         self.layout.addLayout(search_layout)
@@ -127,7 +147,7 @@ class OrderGUI(QWidget):
         # Table
         self.order_table = QTableWidget()
         self.order_table.setColumnCount(5)
-        self.order_table.setHorizontalHeaderLabels(["Order Key", "Customer ID", "Order Date", "Total Amount", "Status"])
+        self.order_table.setHorizontalHeaderLabels(["Order Key", "Customer ID", "Customer Name", "Order Date", "Total Amount", "Status"])
         self.order_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.order_table.setAlternatingRowColors(True)
         self.order_table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -175,6 +195,13 @@ class OrderGUI(QWidget):
             orders_data = self._cache_manager.get_data('Order')
             print("Raw orders data from cache/Firebase:", orders_data)  # Debug print
 
+            customers_data = self._cache_manager.get_data('Customer') or {}
+            def get_customer_name(cid):
+                for cust in customers_data.values():
+                    if str(cust.get('ID', '')) == str(cid) or str(cust.get('CustomerID', '')) == str(cid):
+                        return cust.get('Name', cust.get('FullName', ''))
+                return ""
+
             if not orders_data:
                 print("No orders found in database")  # Debug print
                 return
@@ -191,9 +218,13 @@ class OrderGUI(QWidget):
                         valid_statuses = ["Pending", "Shipped", "Delivered", "Cancelled"]
                         status = next((s for s in valid_statuses if s.lower() == status.lower()), status)
                         
+                        customer_id = order_data.get('CustomerID', '')
+                        customer_name = get_customer_name(customer_id)
+                        
                         order_info = {
                             'key': key,
-                            'customer_id': order_data.get('CustomerID', ''),
+                            'customer_id': customer_id,
+                            'customer_name': customer_name,
                             'date': order_data.get('OrderDate', ''),
                             'amount': order_data.get('TotalAmount', ''),
                             'status': status
@@ -219,42 +250,44 @@ class OrderGUI(QWidget):
             QMessageBox.critical(self, "Error", f"Failed to load orders: {str(e)}")
 
     def filter_orders(self):
-        """Filter orders based on search text and status"""
+        """Filter orders based on search text, status, and date range"""
         search_text = self.search_input.text().lower()
         status_filter = self.status_filter.currentText()
-        
+        from_date = self.from_date.date().toString("yyyy-MM-dd")
+        to_date = self.to_date.date().toString("yyyy-MM-dd")
         print(f"\nFiltering orders:")  # Debug print
         print(f"Search text: '{search_text}'")  # Debug print
         print(f"Status filter: '{status_filter}'")  # Debug print
+        print(f"Date range: {from_date} to {to_date}")  # Debug print
         print(f"Total orders available: {len(self.all_orders)}")  # Debug print
-        
         # Clear filtered orders
         self.filtered_orders = []
-        
         # Apply filters
         for order in self.all_orders:
             matches_search = (
                 search_text in str(order['key']).lower() or
                 search_text in str(order['customer_id']).lower() or
+                search_text in str(order.get('customer_name', '')).lower() or
                 search_text in str(order['date']).lower() or
                 search_text in str(order['amount']).lower() or
                 search_text in str(order['status']).lower()
             )
-            
+            # חיפוש מתקדם: חיפוש תאריך מדויק או חלקי
+            if search_text:
+                if '-' in search_text and len(search_text) >= 8:
+                    matches_search = matches_search or search_text in str(order['date']).lower()
             matches_status = (
                 status_filter == "All Status" or
                 status_filter.lower() == str(order['status']).lower()
             )
-            
-            print(f"Order {order['key']}:")  # Debug print
-            print(f"  Status: '{order['status']}'")  # Debug print
-            print(f"  Matches search: {matches_search}")  # Debug print
-            print(f"  Matches status: {matches_status}")  # Debug print
-            
-            if matches_search and matches_status:
-                print(f"  -> Adding to filtered list")  # Debug print
+            # --- Date range filter ---
+            order_date = order['date']
+            in_date_range = True
+            if order_date:
+                in_date_range = (from_date <= order_date <= to_date)
+            # --- End date range filter ---
+            if matches_search and matches_status and in_date_range:
                 self.filtered_orders.append(order)
-        
         # Display filtered orders
         self.display_filtered_orders()
 
@@ -264,6 +297,7 @@ class OrderGUI(QWidget):
         for order in self.filtered_orders:
             self.add_order_to_table(order['key'], {
                 'CustomerID': order['customer_id'],
+                'CustomerName': order['customer_name'],
                 'OrderDate': order['date'],
                 'TotalAmount': order['amount'],
                 'Status': order['status']
@@ -278,6 +312,7 @@ class OrderGUI(QWidget):
         items = [
             order_key,
             str(order_data.get("CustomerID", "")),
+            order_data.get("CustomerName", ""),
             order_data.get("OrderDate", ""),
             f"₪{float(order_data.get('TotalAmount', 0)):.2f}",
             order_data.get("Status", "")
@@ -288,7 +323,7 @@ class OrderGUI(QWidget):
             item.setTextAlignment(Qt.AlignCenter)
             
             # Color-code the status
-            if col == 4:  # Status column
+            if col == 5:  # Status column
                 status_colors = {
                     "Pending": "#f1c40f",    # Yellow
                     "Shipped": "#3498db",    # Blue
@@ -333,9 +368,23 @@ class OrderGUI(QWidget):
             form.setSpacing(16)
             # Customer ComboBox
             self.customer_combo = QComboBox()
-            for cid, name in self.customers.items():
-                self.customer_combo.addItem(f"{name} (ID: {cid})", cid)
-            form.addRow("Customer:", self.customer_combo)
+            self.customer_combo.setEditable(True)
+            self.customer_combo.completer().setFilterMode(Qt.MatchContains)
+            self.customer_combo.completer().setCompletionMode(QCompleter.PopupCompletion)
+            if not self.customers:
+                self.customer_combo.addItem("No customers found", None)
+                self.customer_combo.setEnabled(False)
+            else:
+                for cid, name in self.customers.items():
+                    self.customer_combo.addItem(f"{name} (ID: {cid})", cid)
+            # --- כפתור הוסף לקוח חדש ---
+            add_customer_btn = QPushButton("+ Add New Customer")
+            add_customer_btn.setStyleSheet("padding: 7px 12px; border-radius: 7px; background: #43a047; color: #fff; font-size: 13px;")
+            add_customer_btn.clicked.connect(self.add_new_customer_dialog)
+            customer_row = QHBoxLayout()
+            customer_row.addWidget(self.customer_combo)
+            customer_row.addWidget(add_customer_btn)
+            form.addRow("Customer:", customer_row)
             # Order Date
             self.order_date = QDateEdit()
             self.order_date.setCalendarPopup(True)
@@ -422,17 +471,46 @@ class OrderGUI(QWidget):
                         summary.append(f"{name} x{q} @ ₪{p:.2f}")
             self.summary_label.setText(f"<b>Order Summary:</b> {'; '.join(summary)}<br><b>Total: ₪{total:.2f}</b>")
         def validate_and_accept(self):
-            if self.product_table.rowCount() == 0:
-                QMessageBox.warning(self, "Error", "Please add at least one product.")
-                return
-            for row in range(self.product_table.rowCount()):
-                prod_combo = self.product_table.cellWidget(row, 0)
-                qty = self.product_table.cellWidget(row, 1)
-                price = self.product_table.cellWidget(row, 2)
-                if not prod_combo or not qty or not price or qty.value() <= 0 or price.value() <= 0:
-                    QMessageBox.warning(self, "Error", "Please fill all product details correctly.")
+            try:
+                # בדוק שנבחר לקוח קיים
+                if not self.customer_combo.isEnabled() or self.customer_combo.currentData() is None:
+                    QMessageBox.warning(self, "Error", "Please select a valid customer.")
                     return
-            self.accept()
+                # בדוק שיש לפחות מוצר אחד
+                if self.product_table.rowCount() == 0:
+                    QMessageBox.warning(self, "Error", "Please add at least one product.")
+                    return
+                found_valid_product = False
+                for row in range(self.product_table.rowCount()):
+                    prod_combo = self.product_table.cellWidget(row, 0)
+                    qty = self.product_table.cellWidget(row, 1)
+                    price = self.product_table.cellWidget(row, 2)
+                    if not prod_combo or not qty or not price:
+                        QMessageBox.warning(self, "Error", "Please fill all product details correctly.")
+                        return
+                    if qty.value() > 0 and price.value() > 0:
+                        found_valid_product = True
+                if not found_valid_product:
+                    QMessageBox.warning(self, "Error", "Please enter valid quantity and price for at least one product.")
+                    return
+                # בדוק שהתאריך תקין
+                if not self.order_date.date().isValid():
+                    QMessageBox.warning(self, "Error", "Please select a valid order date.")
+                    return
+                # בדוק שסכום ההזמנה חיובי
+                total = 0
+                for row in range(self.product_table.rowCount()):
+                    qty = self.product_table.cellWidget(row, 1)
+                    price = self.product_table.cellWidget(row, 2)
+                    if qty and price:
+                        total += qty.value() * price.value()
+                if total <= 0:
+                    QMessageBox.warning(self, "Error", "Order total must be positive.")
+                    return
+                self.accept()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Validation error: {str(e)}")
+                return
         def get_data(self):
             # Collect products
             products = []
@@ -454,6 +532,26 @@ class OrderGUI(QWidget):
                 "Products": products,
                 "TotalAmount": total
             }
+        def add_new_customer_dialog(self):
+            from Customer_gui import AddCustomerDialog
+            dialog = AddCustomerDialog(self)
+            if dialog.exec_() == QDialog.Accepted:
+                data = dialog.get_data()
+                try:
+                    ref = db.reference('Customer')
+                    ref.child(data["ID"]).set(data)
+                    QMessageBox.information(self, "Success", "Customer added successfully!")
+                    # טען מחדש את רשימת הלקוחות
+                    self.customers = self.fetch_customers()
+                    self.customer_combo.clear()
+                    for cid, name in self.customers.items():
+                        self.customer_combo.addItem(f"{name} (ID: {cid})", cid)
+                    # בחר את הלקוח החדש
+                    idx = self.customer_combo.findData(data["ID"])
+                    if idx != -1:
+                        self.customer_combo.setCurrentIndex(idx)
+                except Exception as e:
+                    QMessageBox.critical(self, "Error", f"Failed to add customer: {str(e)}")
 
     def add_order(self):
         """Add a new order with a modern form dialog"""
@@ -482,9 +580,10 @@ class OrderGUI(QWidget):
         try:
             order_key = self.order_table.item(selected_row, 0).text()
             current_customer_id = int(self.order_table.item(selected_row, 1).text())
-            current_date = self.order_table.item(selected_row, 2).text()
-            current_amount = float(self.order_table.item(selected_row, 3).text().replace('₪', ''))
-            current_status = self.order_table.item(selected_row, 4).text()
+            current_customer_name = self.order_table.item(selected_row, 2).text()
+            current_date = self.order_table.item(selected_row, 3).text()
+            current_amount = float(self.order_table.item(selected_row, 4).text().replace('₪', ''))
+            current_status = self.order_table.item(selected_row, 5).text()
 
             customer_id, ok = QInputDialog.getInt(self, "Update Order", "Enter Customer ID:", value=current_customer_id, min=1)
             if not ok:
@@ -509,6 +608,7 @@ class OrderGUI(QWidget):
 
             updated_order = {
                 "CustomerID": customer_id,
+                "CustomerName": current_customer_name,
                 "OrderDate": order_date,
                 "TotalAmount": total_amount,
                 "Status": status

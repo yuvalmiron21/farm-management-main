@@ -482,15 +482,42 @@ class PannableGraphicsView(QGraphicsView):
     def __init__(self, scene, parent=None):
         super().__init__(scene, parent)
         self._panning = False
+        self._pan_mode = False
         self._last_mouse_pos = QPoint()
         self.setDragMode(QGraphicsView.NoDrag)
+        # Enable panning at all zoom levels
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setRenderHint(QPainter.Antialiasing)
+        self.setViewportUpdateMode(QGraphicsView.BoundingRectViewportUpdate)
+
+    def set_pan_mode(self, enabled):
+        """מפעיל מצב פאנינג קבוע"""
+        self._pan_mode = enabled
+        if enabled:
+            # Use QGraphicsView's built-in panning mode
+            self.setDragMode(QGraphicsView.ScrollHandDrag)
+        else:
+            self.setDragMode(QGraphicsView.NoDrag)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and not self.itemAt(event.pos()):
+        # Middle mouse button always enables panning
+        if event.button() == Qt.MiddleButton:
             self._panning = True
             self._last_mouse_pos = event.pos()
             self.viewport().setCursor(Qt.ClosedHandCursor)
             event.accept()
+        # Left mouse button enables panning in pan mode or when not clicking on items
+        elif event.button() == Qt.LeftButton and (self._pan_mode or not self.itemAt(event.pos())):
+            if self._pan_mode:
+                # Use built-in panning mode
+                super().mousePressEvent(event)
+            else:
+                # Use custom panning
+                self._panning = True
+                self._last_mouse_pos = event.pos()
+                self.viewport().setCursor(Qt.ClosedHandCursor)
+                event.accept()
         else:
             self._panning = False
             super().mousePressEvent(event)
@@ -499,8 +526,31 @@ class PannableGraphicsView(QGraphicsView):
         if self._panning:
             delta = event.pos() - self._last_mouse_pos
             self._last_mouse_pos = event.pos()
-            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
-            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+            
+            # Try scroll bar panning first
+            if self.horizontalScrollBar().isVisible() or self.verticalScrollBar().isVisible():
+                self.horizontalScrollBar().setValue(
+                    self.horizontalScrollBar().value() - delta.x()
+                )
+                self.verticalScrollBar().setValue(
+                    self.verticalScrollBar().value() - delta.y()
+                )
+            else:
+                # Use viewport translation for panning when scroll bars are not available
+                # Calculate the scene delta based on current transform
+                transform = self.transform()
+                scale_x = transform.m11()
+                scale_y = transform.m22()
+                
+                # Convert viewport delta to scene delta
+                scene_delta_x = delta.x() / scale_x
+                scene_delta_y = delta.y() / scale_y
+                
+                # Move the view by translating the scene
+                current_center = self.mapToScene(self.viewport().rect().center())
+                new_center = current_center - QPointF(scene_delta_x, scene_delta_y)
+                self.centerOn(new_center)
+            
             event.accept()
         else:
             super().mouseMoveEvent(event)
@@ -583,6 +633,13 @@ class FarmVisualGUI(QWidget):
         add_text_btn.clicked.connect(lambda checked: self.set_adding_mode('text' if checked else None, add_text_btn))
         toolbar.addWidget(add_text_btn)
         
+        # כפתור מצב פאנינג
+        pan_mode_btn = QPushButton("✋ Pan Mode")
+        pan_mode_btn.setCheckable(True)
+        pan_mode_btn.setStyleSheet(btn_style)
+        pan_mode_btn.clicked.connect(lambda checked: self.set_pan_mode(checked, pan_mode_btn))
+        toolbar.addWidget(pan_mode_btn)
+        
         toolbar.addStretch()
 
         zoom_in_btn = QPushButton("➕ Zoom In")
@@ -604,7 +661,13 @@ class FarmVisualGUI(QWidget):
         save_btn.setStyleSheet(btn_style.replace("#34495e", "#27ae60").replace("#4a627a", "#2ecc71"))
         save_btn.clicked.connect(self.save_design)
         toolbar.addWidget(save_btn)
-        
+
+        # כפתור רענון מיטות
+        refresh_btn = QPushButton("🔄 Refresh")
+        refresh_btn.setStyleSheet(btn_style)
+        refresh_btn.clicked.connect(self.load_farm_data)
+        toolbar.addWidget(refresh_btn)
+
         toolbar_layout.addWidget(toolbar_frame)
         self.layout.addWidget(toolbar_container)
 
@@ -617,6 +680,20 @@ class FarmVisualGUI(QWidget):
                     btn.setChecked(False)
         else:
             self.view.setCursor(Qt.ArrowCursor)
+
+    def set_pan_mode(self, enabled, button):
+        """מפעיל מצב פאנינג קבוע"""
+        if enabled:
+            self.view.setCursor(Qt.ClosedHandCursor)
+            self.view.set_pan_mode(True)
+            # בטל מצבים אחרים
+            for btn in self.findChildren(QPushButton):
+                if isinstance(btn, QPushButton) and btn.isCheckable() and btn != button:
+                    btn.setChecked(False)
+            self.adding_mode = None
+        else:
+            self.view.setCursor(Qt.ArrowCursor)
+            self.view.set_pan_mode(False)
 
     def zoom_in(self):
         self.view.scale(1.2, 1.2)
