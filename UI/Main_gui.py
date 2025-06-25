@@ -535,26 +535,116 @@ class DashboardWindow(QWidget):
         occupancy_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         grid.addWidget(occupancy_card, 1, 2, 1, 2)
         # --- Table (spans all columns) ---
-        table_card = QFrame()
-        table_card.setStyleSheet('''
+        table_frame = QFrame()
+        table_frame.setStyleSheet('''
             QFrame {
                 background: #fff;
                 border-radius: 18px;
-                border: 1.5px solid #e0e6ed;
-                box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+                border: none;
+                box-shadow: none;
             }
         ''')
-        table_layout = QVBoxLayout(table_card)
-        table_layout.setContentsMargins(24, 18, 24, 18)
-        table_layout.setSpacing(0)
-        orders_label = QLabel("Recent Orders:")
-        orders_label.setStyleSheet("font-size: 18px; font-weight: bold; margin-bottom: 12px;")
-        table_layout.addWidget(orders_label)
-        orders_table = self.create_orders_table()
-        orders_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        table_layout.addWidget(orders_table)
-        table_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        grid.addWidget(table_card, 2, 0, 1, 4)
+        frame_layout = QVBoxLayout(table_frame)
+        frame_layout.setContentsMargins(24, 18, 24, 18)
+        frame_layout.setSpacing(0)
+        table = QTableWidget()
+        table.setColumnCount(5)
+        table.setHorizontalHeaderLabels(["No", "Customer", "Amount", "Status", "Order Date"])
+        table.verticalHeader().setVisible(False)
+        table.setShowGrid(False)
+        table.setAlternatingRowColors(False)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.setSelectionMode(QTableWidget.NoSelection)
+        table.setFocusPolicy(Qt.NoFocus)
+        table.setStyleSheet('''
+            QTableWidget {
+                background: transparent;
+                border: none;
+                font-size: 12px;
+                color: #23272e;
+                font-family: 'Segoe UI';
+            }
+            QHeaderView::section {
+                background: #f7f8fa;
+                color: #8b98a9;
+                font-size: 13px;
+                font-weight: 600;
+                border: none;
+                border-bottom: 2px solid #e0e6ed;
+                padding: 10px 0;
+            }
+            QTableWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #e0e6ed;
+                font-size: 12px;
+            }
+        ''')
+        # Get real data
+        data = get_recent_orders(10)
+        table.setRowCount(len(data))
+        status_colors = {
+            "Paid": ("#e3f8f3", "#43d39e"),
+            "Pending": ("#fff6e3", "#ff9800"),
+            "Overdue": ("#ffe3e3", "#e74c3c"),
+            "Processing": ("#e3e8ff", "#6C63FF"),
+            "Shipped": ("#e3f0ff", "#2196f3"),
+            "Delivered": ("#e3f8f3", "#43d39e"),
+            "Completed": ("#e3f8f3", "#43d39e"),
+            "Cancelled": ("#ffe3e3", "#e74c3c")
+        }
+        import hashlib
+        color_palette = ["#43d39e", "#6C63FF", "#ff9800", "#228B22", "#b0b7c3"]
+        for row, order in enumerate(data):
+            # No
+            item_no = QTableWidgetItem(str(row+1))
+            item_no.setTextAlignment(Qt.AlignCenter)
+            item_no.setFont(QFont("Segoe UI", 11))
+            table.setItem(row, 0, item_no)
+            # Customer name + Avatar
+            customer_name = str(order['Customer'])
+            customer_widget = QWidget()
+            hbox = QHBoxLayout(customer_widget)
+            hbox.setContentsMargins(0, 0, 0, 0)
+            hbox.setSpacing(8)
+            # Avatar
+            color_idx = int(hashlib.md5(customer_name.encode()).hexdigest(), 16) % len(color_palette)
+            bg_color = color_palette[color_idx]
+            first_letter = customer_name[0].upper() if customer_name else "?"
+            avatar_label = QLabel()
+            avatar_label.setFixedSize(24, 24)
+            avatar_label.setAlignment(Qt.AlignCenter)
+            avatar_label.setStyleSheet(f"background: {bg_color}; border-radius: 12px; color: #fff; font-size: 12px; font-weight: bold; border: 2px solid #fff;")
+            avatar_label.setText(first_letter)
+            # Name
+            name_label = QLabel(customer_name)
+            name_label.setFont(QFont("Segoe UI", 12, QFont.Bold))
+            name_label.setStyleSheet("color: #23272e; background: none; border: none;")
+            hbox.addWidget(avatar_label)
+            hbox.addWidget(name_label)
+            hbox.addStretch(1)
+            table.setCellWidget(row, 1, customer_widget)
+            # Amount
+            item_amount = QTableWidgetItem(f"₪{order['Amount']:,.2f}")
+            item_amount.setTextAlignment(Qt.AlignCenter)
+            item_amount.setFont(QFont("Segoe UI", 12, QFont.Bold))
+            table.setItem(row, 2, item_amount)
+            # Status (תגית צבעונית)
+            status = str(order['Status'])
+            status_bg, status_fg = status_colors.get(status, ("#e0e6ed", "#23272e"))
+            status_label = QLabel(status)
+            status_label.setAlignment(Qt.AlignCenter)
+            status_label.setStyleSheet(f"background: {status_bg}; color: {status_fg}; border-radius: 12px; padding: 2px 12px; font-size: 11px; font-weight: bold;")
+            table.setCellWidget(row, 3, status_label)
+            # Order Date (מתוך order)
+            order_date = order.get('OrderDate', '')
+            item_date = QTableWidgetItem(order_date)
+            item_date.setTextAlignment(Qt.AlignCenter)
+            item_date.setFont(QFont("Segoe UI", 11))
+            table.setItem(row, 4, item_date)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        frame_layout.addWidget(table)
+        table_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        grid.addWidget(table_frame, 2, 0, 1, 4)
         # --- Center everything ---
         outer_layout = QHBoxLayout(self)
         outer_layout.setContentsMargins(40, 0, 40, 0)  # שוליים של 40 פיקסל מימין ומשמאל
@@ -689,8 +779,8 @@ class DashboardWindow(QWidget):
             QFrame {
                 background: #fff;
                 border-radius: 18px;
-                border: 1.5px solid #e0e6ed;
-                box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+                border: none;
+                box-shadow: none;
             }
         ''')
         frame_layout = QVBoxLayout(table_frame)
