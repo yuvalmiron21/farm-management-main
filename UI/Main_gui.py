@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QWidget,
                              QScrollArea, QSizePolicy, QGraphicsDropShadowEffect, QLineEdit,
                              QTableWidget, QTableWidgetItem, QHeaderView, QStyledItemDelegate,
                              QToolButton, QMenu, QAction, QDialog, QSpacerItem, QGridLayout,
-                             QGraphicsOpacityEffect)
+                             QGraphicsOpacityEffect, QGroupBox, QCheckBox)
 from PyQt5.QtGui import QFont, QIcon, QColor, QPalette, QBrush, QPen, QPixmap, QFontDatabase
 from PyQt5.QtCore import Qt, QSettings, QTranslator, QLocale, QTimer, QSize, QPoint, QPropertyAnimation, QEasingCurve
 from firebase_admin import db, credentials, initialize_app
@@ -32,6 +32,7 @@ from db.cache_manager import CacheManager
 from LoadingWindow import LoadingWindow
 from SimpleLoadingWindow import SimpleLoadingWindow
 import matplotlib.patheffects as patheffects
+import matplotlib.patches as mpatches
 
 # Initialize Firebase
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # Current file location
@@ -265,12 +266,13 @@ class ModernKpiCard(QFrame):
         super().__init__()
         color_map = {
             'Total Revenue': '#4F8EF7',
-            'Active Orders': '#FF9800',
+            'Active Orders': '#888888',  # gray
             'Customers': '#6C63FF',
             'Occupancy': '#00C48C'
         }
         color = color_map.get(title, '#4F8EF7')
-        self.setFixedSize(330, 150)
+        self.setMinimumHeight(150)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setStyleSheet("""
             QFrame {
                 background: #fff;
@@ -290,15 +292,21 @@ class ModernKpiCard(QFrame):
         left_col = QVBoxLayout()
         left_col.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
         # Icon in colored circle
-        icon_bg = QLabel()
-        icon_bg.setFixedSize(44, 44)
-        icon_bg.setStyleSheet(f"background: {color}; border-radius: 22px;")
-        icon_label = QLabel(icon, icon_bg)
-        icon_label.setFont(QFont("Segoe UI Emoji", 26))
-        icon_label.setAlignment(Qt.AlignCenter)
-        icon_label.setStyleSheet("color: #fff;")
+        icon_label = QLabel()
         icon_label.setFixedSize(44, 44)
-        left_col.addWidget(icon_bg, alignment=Qt.AlignLeft)
+        icon_label.setAlignment(Qt.AlignCenter)
+        # Load icon from UI/dash KPI Icons
+        import os
+        icon_name = title.replace(' ', '') + '.png'  # e.g., ActiveOrders.png
+        icon_path = os.path.join(os.path.dirname(__file__), 'dash KPI Icons', title + '.png')
+        if os.path.exists(icon_path):
+            pixmap = QPixmap(icon_path)
+            pixmap = pixmap.scaled(44, 44, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            icon_label.setPixmap(pixmap)
+        else:
+            icon_label.setText(icon)
+            icon_label.setFont(QFont("Segoe UI Emoji", 26))
+        left_col.addWidget(icon_label, alignment=Qt.AlignLeft)
         # Value
         value_label = QLabel(str(value))
         value_label.setFont(QFont("Segoe UI", 32, QFont.Bold))
@@ -332,47 +340,134 @@ class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
-        self.setMinimumWidth(350)
-        layout = QVBoxLayout(self)
-        # Language selection
-        lang_label = QLabel("Language:")
-        layout.addWidget(lang_label)
+        self.setMinimumWidth(420)
+        self.setStyleSheet("""
+            QDialog {
+                background: #f5f6fa;
+            }
+        """)
+        # Main layout
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setAlignment(Qt.AlignCenter)
+        outer_layout.setContentsMargins(0, 60, 0, 0)
+        # Card
+        card = QFrame()
+        card.setFixedWidth(420)
+        card.setStyleSheet("""
+            QFrame {
+                background: #fff;
+                border-radius: 18px;
+                border: 1.5px solid #e0e6ed;
+            }
+        """)
+        shadow = QGraphicsDropShadowEffect(card)
+        shadow.setBlurRadius(22)
+        shadow.setColor(QColor(200, 200, 200, 60))
+        shadow.setOffset(0, 6)
+        card.setGraphicsEffect(shadow)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(32, 32, 32, 32)
+        card_layout.setSpacing(22)
+        # Title
+        title = QLabel("Settings")
+        title.setFont(QFont("Segoe UI", 20, QFont.Bold))
+        title.setStyleSheet("color: #23272e; margin-bottom: 8px;")
+        card_layout.addWidget(title, alignment=Qt.AlignHCenter)
+        # Language
+        lang_label = QLabel("Language")
+        lang_label.setFont(QFont("Segoe UI", 13, QFont.Bold))
+        lang_label.setStyleSheet("color: #23272e; margin-bottom: 2px;")
+        card_layout.addWidget(lang_label)
         self.lang_combo = QComboBox()
         self.lang_combo.addItems(["English", "עברית", "العربية"])
-        # Set current language
-        main_win = self.parentWidget()
-        if hasattr(main_win, 'current_language'):
-            lang_map = {'en': 'English', 'he': 'עברית', 'ar': 'العربية'}
-            cur_lang = lang_map.get(getattr(main_win, 'current_language', 'en'), 'English')
-            self.lang_combo.setCurrentText(cur_lang)
-        layout.addWidget(self.lang_combo)
-        # Theme selection
-        theme_label = QLabel("Theme:")
-        layout.addWidget(theme_label)
+        self.lang_combo.setStyleSheet("font-size: 14px; padding: 8px;")
+        card_layout.addWidget(self.lang_combo)
+        # Theme
+        theme_label = QLabel("Theme")
+        theme_label.setFont(QFont("Segoe UI", 13, QFont.Bold))
+        theme_label.setStyleSheet("color: #23272e; margin-bottom: 2px;")
+        card_layout.addWidget(theme_label)
         self.theme_combo = QComboBox()
         self.theme_combo.addItems(["Light", "Dark"])
-        if hasattr(main_win, 'current_theme'):
-            self.theme_combo.setCurrentText(main_win.current_theme.capitalize())
-        layout.addWidget(self.theme_combo)
-        # Save button
+        self.theme_combo.setStyleSheet("font-size: 14px; padding: 8px;")
+        card_layout.addWidget(self.theme_combo)
+        # Notifications
+        notif_label = QLabel("Notifications")
+        notif_label.setFont(QFont("Segoe UI", 13, QFont.Bold))
+        notif_label.setStyleSheet("color: #23272e; margin-bottom: 2px;")
+        card_layout.addWidget(notif_label)
+        self.notif_checkbox = QCheckBox("Enable notifications")
+        self.notif_checkbox.setFont(QFont("Segoe UI", 12))
+        card_layout.addWidget(self.notif_checkbox)
+        # Buttons
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch(1)
         save_btn = QPushButton("Save")
+        save_btn.setCursor(Qt.PointingHandCursor)
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background: #43d39e;
+                color: #fff;
+                border-radius: 8px;
+                font-size: 15px;
+                font-weight: bold;
+                padding: 10px 32px;
+            }
+            QPushButton:hover {
+                background: #228B22;
+            }
+        """)
         save_btn.clicked.connect(self.save_settings)
-        layout.addWidget(save_btn)
-        # Close button
         close_btn = QPushButton("Close")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background: #e0e6ed;
+                color: #23272e;
+                border-radius: 8px;
+                font-size: 15px;
+                font-weight: bold;
+                padding: 10px 32px;
+            }
+            QPushButton:hover {
+                background: #b0b7c3;
+            }
+        """)
         close_btn.clicked.connect(self.accept)
-        layout.addWidget(close_btn)
+        btn_layout.addWidget(save_btn)
+        btn_layout.addWidget(close_btn)
+        btn_layout.addStretch(1)
+        card_layout.addLayout(btn_layout)
+        # Add card to outer layout
+        outer_layout.addStretch(1)
+        outer_layout.addWidget(card, alignment=Qt.AlignHCenter)
+        outer_layout.addStretch(1)
+        self.setLayout(outer_layout)
+        self.load_settings()
+
+    def load_settings(self):
+        settings = QSettings("MushFarm", "FarmManagement")
+        lang = settings.value("language", "English")
+        theme = settings.value("theme", "Light")
+        notifications = settings.value("notifications", "true") == "true"
+        self.lang_combo.setCurrentText(lang)
+        self.theme_combo.setCurrentText(theme)
+        self.notif_checkbox.setChecked(notifications)
 
     def save_settings(self):
+        settings = QSettings("MushFarm", "FarmManagement")
+        lang = self.lang_combo.currentText()
+        theme = self.theme_combo.currentText()
+        notifications = self.notif_checkbox.isChecked()
+        settings.setValue("language", lang)
+        settings.setValue("theme", theme)
+        settings.setValue("notifications", "true" if notifications else "false")
         main_win = self.parentWidget()
-        # If parent is not Main_gui, try to get the window
-        if not hasattr(main_win, 'change_language') and hasattr(main_win, 'window'):
-            main_win = main_win.window()
         if hasattr(main_win, 'change_language'):
-            main_win.change_language(self.lang_combo.currentText())
+            main_win.change_language(lang)
         if hasattr(main_win, 'change_theme'):
-            main_win.change_theme(self.theme_combo.currentText().lower())
-        QMessageBox.information(self, "Settings", "Settings updated!")
+            main_win.change_theme(theme.lower())
+        QMessageBox.information(self, "Settings", "Settings saved successfully!")
 
 class DashboardWindow(QWidget):
     def __init__(self, parent=None):
@@ -381,46 +476,90 @@ class DashboardWindow(QWidget):
         self.init_ui()
 
     def init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setSpacing(0)
-        layout.setContentsMargins(0, 0, 0, 0)
-        kpi_row_container = QWidget()
-        kpi_row_container.setStyleSheet("background: transparent;")
-        kpi_row_layout = QHBoxLayout(kpi_row_container)
-        kpi_row_layout.setContentsMargins(0, 36, 0, 36)
-        kpi_row_layout.setSpacing(36)
-        kpi_row_layout.addStretch(1)
+        SIDE_MARGIN = 32
+        INNER_SPACING = 24
+        main_container = QWidget()
+        main_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        grid = QGridLayout(main_container)
+        grid.setSpacing(INNER_SPACING)
+        grid.setContentsMargins(SIDE_MARGIN, SIDE_MARGIN, SIDE_MARGIN, SIDE_MARGIN)
+        # --- KPI Row (4 columns) ---
         kpis = [
             ("Total Revenue", f"₪{self.kpi_data['total_revenue']:,.0f}", "💰", [100, 120, 90, 130, 150, 170, 160]),
             ("Active Orders", str(self.kpi_data['active_orders']), "📦", [10, 12, 8, 15, 13, 14, 16]),
             ("Customers", str(self.kpi_data['num_customers']), "👥", [200, 220, 210, 230, 250, 270, 260]),
             ("Occupancy", f"{self.kpi_data['occupancy']}%", "🌱", [60, 65, 70, 68, 72, 75, 80])
         ]
-        for title, value, icon, spark_data in kpis:
+        kpi_cards = []
+        for i, (title, value, icon, spark_data) in enumerate(kpis):
             kpi_card = ModernKpiCard(title, value, icon, spark_data)
-            kpi_row_layout.addWidget(kpi_card)
-        kpi_row_layout.addStretch(1)
-        kpi_row_container.setMaximumWidth(1550)
-        kpi_row_container.setMinimumWidth(1350)
-        kpi_row_outer = QHBoxLayout()
-        kpi_row_outer.addStretch(1)
-        kpi_row_outer.addWidget(kpi_row_container)
-        kpi_row_outer.addStretch(1)
-        layout.addLayout(kpi_row_outer)
-        # Charts section
-        charts_row = QHBoxLayout()
+            kpi_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            grid.addWidget(kpi_card, 0, i)
+            kpi_cards.append(kpi_card)
+        # הפוך את כל עמודות הגריד ל-Expanding
+        for i in range(4):
+            grid.setColumnStretch(i, 1)
+        # --- Charts Row (2 charts, each spans 2 columns) ---
+        revenue_card = QFrame()
+        revenue_card.setStyleSheet('''
+            QFrame {
+                background: #fff;
+                border-radius: 18px;
+                border: 1.5px solid #e0e6ed;
+                box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+            }
+        ''')
+        revenue_layout = QVBoxLayout(revenue_card)
+        revenue_layout.setContentsMargins(24, 18, 24, 18)
+        revenue_layout.setSpacing(0)
         revenue_chart = self.create_revenue_chart()
-        charts_row.addWidget(revenue_chart, 2)
+        revenue_chart.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        revenue_layout.addWidget(revenue_chart)
+        revenue_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        grid.addWidget(revenue_card, 1, 0, 1, 2)
+        occupancy_card = QFrame()
+        occupancy_card.setStyleSheet('''
+            QFrame {
+                background: #fff;
+                border-radius: 18px;
+                border: 1.5px solid #e0e6ed;
+                box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+            }
+        ''')
+        occupancy_layout = QVBoxLayout(occupancy_card)
+        occupancy_layout.setContentsMargins(24, 18, 24, 18)
+        occupancy_layout.setSpacing(0)
         occupancy_chart = self.create_occupancy_chart()
-        charts_row.addWidget(occupancy_chart, 1)
-        layout.addLayout(charts_row)
-        # Recent orders table
+        occupancy_chart.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        occupancy_layout.addWidget(occupancy_chart)
+        occupancy_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        grid.addWidget(occupancy_card, 1, 2, 1, 2)
+        # --- Table (spans all columns) ---
+        table_card = QFrame()
+        table_card.setStyleSheet('''
+            QFrame {
+                background: #fff;
+                border-radius: 18px;
+                border: 1.5px solid #e0e6ed;
+                box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+            }
+        ''')
+        table_layout = QVBoxLayout(table_card)
+        table_layout.setContentsMargins(24, 18, 24, 18)
+        table_layout.setSpacing(0)
         orders_label = QLabel("Recent Orders:")
-        orders_label.setStyleSheet("font-size: 18px; font-weight: bold; margin-top: 20px;")
-        layout.addWidget(orders_label)
+        orders_label.setStyleSheet("font-size: 18px; font-weight: bold; margin-bottom: 12px;")
+        table_layout.addWidget(orders_label)
         orders_table = self.create_orders_table()
-        layout.addWidget(orders_table)
-        self.setLayout(layout)
+        orders_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        table_layout.addWidget(orders_table)
+        table_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        grid.addWidget(table_card, 2, 0, 1, 4)
+        # --- Center everything ---
+        outer_layout = QHBoxLayout(self)
+        outer_layout.setContentsMargins(40, 0, 40, 0)  # שוליים של 40 פיקסל מימין ומשמאל
+        outer_layout.addWidget(main_container)
+        self.setLayout(outer_layout)
 
     def create_revenue_chart(self):
         months, revenue = get_monthly_revenue()
@@ -478,12 +617,18 @@ class DashboardWindow(QWidget):
         return canvas
 
     def create_occupancy_chart(self):
+        import matplotlib.patches as mpatches
         stage_counts = get_bed_occupancy()
         labels = list(stage_counts.keys())
         sizes = list(stage_counts.values())
         colors = ['#43d39e', '#b0b7c3', '#6C63FF', '#228B22', '#e0e6ed']
-        fig = Figure(figsize=(4, 4))
-        ax = fig.add_subplot(111)
+
+        fig = Figure(figsize=(6, 4))
+        gs = fig.add_gridspec(1, 2, width_ratios=[2.5, 1], wspace=0.01)
+        ax = fig.add_subplot(gs[0, 0])
+        ax_legend = fig.add_subplot(gs[0, 1])
+        ax_legend.axis('off')
+
         wedges, texts, autotexts = ax.pie(
             sizes,
             labels=labels,
@@ -499,26 +644,42 @@ class DashboardWindow(QWidget):
             autotext.set_fontsize(10)
             autotext.set_fontweight('bold')
             autotext.set_path_effects([patheffects.withStroke(linewidth=2, foreground='white')])
-        fig.patch.set_facecolor('white')
-        ax.set_facecolor('white')
-        ax.set_title('Bed Occupancy', fontsize=16, color='#23272e', pad=18)
+
+        # כותרת מעל הפאי, מיושרת שמאלה
+        ax.set_title('Bed Occupancy', fontsize=16, color='#23272e', pad=18, loc='left')
+
+        # Legend custom
+        y0 = 0.85
+        dy = 0.18
+        ax_legend.text(0, 1.05, "Stage (Beds)", fontsize=13, color="#23272e", fontweight='bold')
+        for i, (label, count, color) in enumerate(zip(labels, sizes, colors)):
+            y = y0 - i * dy
+            # עיגול צבעוני קטן יותר
+            circ = mpatches.Circle((0.05, y), 0.025, color=color, transform=ax_legend.transAxes, clip_on=False)
+            ax_legend.add_patch(circ)
+            ax_legend.text(0.13, y, label, fontsize=12, color="#23272e", va='center', ha='left')
+            ax_legend.text(0.85, y, str(count), fontsize=14, color="#23272e", va='center', ha='right', fontweight='bold')
+
         fig.tight_layout()
         canvas = FigureCanvas(fig)
         canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        # הוספת hover effect
         def on_move(event):
             found = False
             for i, wedge in enumerate(wedges):
                 if wedge.contains_point([event.x, event.y], radius=1.5):
                     wedge.set_alpha(0.7)
                     percent = (sizes[i] / sum(sizes) * 100) if sum(sizes) > 0 else 0
-                    ax.set_title(f"{labels[i]}: {sizes[i]} beds ({percent:.1f}%)", fontsize=16, color='#43d39e')
+                    ax.set_title(f"{labels[i]}: {sizes[i]} beds ({percent:.1f}%)", fontsize=16, color='#43d39e', loc='left')
                     found = True
                 else:
                     wedge.set_alpha(1.0)
             if not found:
-                ax.set_title('Bed Occupancy', fontsize=16, color='#23272e')
+                ax.set_title('Bed Occupancy', fontsize=16, color='#23272e', loc='left')
             canvas.draw_idle()
         canvas.mpl_connect('motion_notify_event', on_move)
+
         return canvas
 
     def create_orders_table(self):
@@ -715,7 +876,7 @@ class ModernSidebar(QFrame):
         minimize_btn.setCursor(Qt.PointingHandCursor)
         minimize_btn.setStyleSheet("background: none; color: #b0b7c3; font-size: 15px; border: none; font-weight: 400; padding-left: 10px; padding-right: 8px;")
         minimize_btn.clicked.connect(self.toggle_collapse)
-        min_row.addWidget(minimize_btn, stretch=0, alignment=Qt.AlignRight)
+        min_row.addWidget(minimize_btn)
         logo_layout.addLayout(min_row)
         layout.addWidget(logo_frame)
         layout.addSpacing(10)
@@ -806,9 +967,7 @@ class ModernSidebar(QFrame):
                     }
                     text = self.menu_items[i][0]
                     btn.setText(fallback_icons.get(text, "📋"))
-                    btn.setIcon(QIcon())
                 btn.setStyleSheet("font-size: 20px; color: #fff; background: none; border: none; text-align: center; padding: 15px 0px;")
-            
             # עדכן את כפתור ה-Minimize
             for child in self.findChildren(QPushButton):
                 if child.text() == "< Minimize":
@@ -842,13 +1001,12 @@ class ModernSidebar(QFrame):
                     btn.setText(f"{fallback_icons.get(text, '📋')}  {text}")
                     btn.setIcon(QIcon())
                 btn.setStyleSheet("")
-            
             # עדכן את כפתור ה-Minimize
             for child in self.findChildren(QPushButton):
                 if child.text() == "> Expand":
                     child.setText("< Minimize")
                     break
-        self.update()
+            self.update()
         # עדכן הצגת כותרות/לוגו
         if hasattr(self, '_update_logo_visibility'):
             self._update_logo_visibility()
@@ -1625,6 +1783,27 @@ class Main_gui(QMainWindow):
         else:
             self.bell_menu.addAction("No alerts")
             self.bell_red_dot.hide()
+
+    def change_theme(self, theme):
+        if theme.lower() == 'dark':
+            self.setStyleSheet("""
+                QMainWindow { background: #23272e; color: #fff; }
+                QLabel, QPushButton, QComboBox, QLineEdit, QTableWidget, QHeaderView::section, QTableWidget::item, QMenu, QToolButton {
+                    color: #fff;
+                    background: #23272e;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                QMainWindow { background: #f5f6fa; color: #23272e; }
+                QLabel, QPushButton, QComboBox, QLineEdit, QTableWidget, QHeaderView::section, QTableWidget::item, QMenu, QToolButton {
+                    color: #23272e;
+                    background: #fff;
+                }
+            """)
+    def change_language(self, lang):
+        # כאן תוכל להחיל תרגום (אם יש לך QTranslator)
+        pass
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

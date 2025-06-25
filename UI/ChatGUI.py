@@ -221,7 +221,7 @@ class ChatGUI(QWidget):
         main_layout.addWidget(input_frame)
 
         # Add welcome message
-        self.add_message("Hello! I'm your AI assistant. How can I help you with your mushroom farm today?", False)
+        self.add_message("שלום! אני העוזר החכם שלך. איך אפשר לעזור לך בניהול חוות הפטריות שלך היום?", False)
 
         # Initialize Gemini
         self.initialize_gemini()
@@ -234,11 +234,15 @@ class ChatGUI(QWidget):
         try:
             api_key = os.getenv('GEMINI_API_KEY')
             if not api_key:
-                raise ValueError("GEMINI_API_KEY not found or is empty. Please check your .env file.")
+                api_key = "AIzaSyB0nWo8VcVoHoDsq54PYw_T82PL4DCg-Sg"
+                print("⚠️ Using hardcoded Gemini API key (no .env found)")
+            else:
+                print("✅ Gemini API key loaded from .env")
             
+            # Correct usage for google-generativeai
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
-            print("✅ Gemini initialized successfully.")
+            self.model = genai.GenerativeModel('gemini-2.0-flash')
+            print("✅ Gemini model initialized successfully.")
         except Exception as e:
             error_message = f"Error initializing AI: {str(e)}"
             print(f"🚨 {error_message}")
@@ -319,6 +323,7 @@ class ChatGUI(QWidget):
                 f"User question: {user_message}\n\nPlease provide a helpful and concise response in Hebrew."
             )
             
+            # Use the correct API syntax
             response = self.model.generate_content(prompt)
             self.add_message(response.text, False)
         except Exception as e:

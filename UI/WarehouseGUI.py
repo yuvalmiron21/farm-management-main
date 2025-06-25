@@ -56,10 +56,10 @@ class StorageUnitItem(QGraphicsObject):
 
         self._scale = 1.0
         self._is_hovered = False
-        self.width = 150
-        self.height = 100
-        self.detailed_panel_width = 250
-        self.detailed_panel_height = 210
+        self.width = 170
+        self.height = 120
+        self.detailed_panel_width = 280
+        self.detailed_panel_height = 260
         
         self.type_colors = {
             "supply": ("#78909c", "#546e7a"),
@@ -124,21 +124,25 @@ class StorageUnitItem(QGraphicsObject):
         painter.setPen(Qt.white)
         painter.setFont(self.title_font)
         name = self.unit_data.get('name', 'Unknown')
-        painter.drawText(QRectF(10, 5, self.width - 20, 25), name)
+        painter.drawText(QRectF(10, 5, self.width - 20, 25), Qt.AlignLeft | Qt.AlignVCenter, name)
         
         quantity = self.unit_data.get('quantity', 0)
         max_quantity = self.unit_data.get('max_quantity', 100)
         
         painter.setFont(self.label_font)
         painter.setPen(QColor(255,255,255,180))
-        painter.drawText(QRectF(10, 25, self.width-20, 20), f"{quantity} / {max_quantity}")
+        painter.drawText(QRectF(10, 30, self.width-20, 20), Qt.AlignLeft | Qt.AlignVCenter, f"{quantity} / {max_quantity}")
 
         # Show category/subcategory if available
         category = self.unit_data.get('category', '')
         subcategory = self.unit_data.get('subcategory', '')
-        if category and subcategory:
-            painter.drawText(QRectF(10, 45, self.width-20, 15), f"{category}")
-            painter.drawText(QRectF(10, 60, self.width-20, 15), f"{subcategory}")
+        y_cat = 50
+        if category:
+            painter.drawText(QRectF(10, y_cat, self.width-20, 15), Qt.AlignLeft | Qt.AlignVCenter, f"{category}")
+            y_cat += 18
+        if subcategory:
+            painter.drawText(QRectF(10, y_cat, self.width-20, 15), Qt.AlignLeft | Qt.AlignVCenter, f"{subcategory}")
+            y_cat += 18
 
         fill_percentage = min(1.0, quantity / max_quantity) if max_quantity > 0 else 0
         
@@ -174,56 +178,57 @@ class StorageUnitItem(QGraphicsObject):
         painter.drawPath(path)
         
         data = self.unit_data
-        y_offset = 20
+        y_offset = 28
+        line_height = 22
         
         # Basic info
         painter.setFont(QFont("Arial", 12, QFont.Bold))
         painter.setPen(Qt.black)
-        painter.drawText(panel_x + 15, y_offset, "📦 Item Details")
-        y_offset += 25
+        painter.drawText(QRectF(panel_x + 15, y_offset-8, panel_width-30, line_height), Qt.AlignLeft | Qt.AlignVCenter, "📦 Item Details")
+        y_offset += line_height
         
         painter.setFont(QFont("Arial", 10))
         painter.setPen(QColor("#555"))
         
         # Category and subcategory
         if data.get('category'):
-            painter.drawText(panel_x + 15, y_offset, f"Category: {data.get('category', 'N/A')}")
-            y_offset += 20
+            painter.drawText(QRectF(panel_x + 15, y_offset, panel_width-30, line_height), Qt.AlignLeft | Qt.AlignVCenter, f"Category: {data.get('category', 'N/A')}")
+            y_offset += line_height
         if data.get('subcategory'):
-            painter.drawText(panel_x + 15, y_offset, f"Type: {data.get('subcategory', 'N/A')}")
-            y_offset += 20
+            painter.drawText(QRectF(panel_x + 15, y_offset, panel_width-30, line_height), Qt.AlignLeft | Qt.AlignVCenter, f"Type: {data.get('subcategory', 'N/A')}")
+            y_offset += line_height
         
         # Description
         if data.get('description'):
-            painter.drawText(panel_x + 15, y_offset, f"Description: {data.get('description', 'N/A')}")
-            y_offset += 20
+            painter.drawText(QRectF(panel_x + 15, y_offset, panel_width-30, line_height), Qt.AlignLeft | Qt.AlignVCenter, f"Description: {data.get('description', 'N/A')}")
+            y_offset += line_height
         
         # Price
         if data.get('unit_price'):
-            painter.drawText(panel_x + 15, y_offset, f"Price: ${data.get('unit_price', 0):.2f}")
-            y_offset += 20
+            painter.drawText(QRectF(panel_x + 15, y_offset, panel_width-30, line_height), Qt.AlignLeft | Qt.AlignVCenter, f"Price: ${data.get('unit_price', 0):.2f}")
+            y_offset += line_height
         
         # Supplier
         if data.get('supplier'):
-            painter.drawText(panel_x + 15, y_offset, f"Supplier: {data.get('supplier', 'N/A')}")
-            y_offset += 20
+            painter.drawText(QRectF(panel_x + 15, y_offset, panel_width-30, line_height), Qt.AlignLeft | Qt.AlignVCenter, f"Supplier: {data.get('supplier', 'N/A')}")
+            y_offset += line_height
         
         # Quality grade
         if data.get('quality_grade'):
             quality_color = QColor("#4CAF50") if data.get('quality_grade') == "Premium" else (QColor("#FFC107") if data.get('quality_grade') == "Standard" else QColor("#F44336"))
             painter.setPen(quality_color)
-            painter.drawText(panel_x + 15, y_offset, f"Quality: {data.get('quality_grade', 'N/A')}")
+            painter.drawText(QRectF(panel_x + 15, y_offset, panel_width-30, line_height), Qt.AlignLeft | Qt.AlignVCenter, f"Quality: {data.get('quality_grade', 'N/A')}")
             painter.setPen(QColor("#555"))
-            y_offset += 20
+            y_offset += line_height
         
         # Expiry date
         if data.get('expiry_date'):
-            painter.drawText(panel_x + 15, y_offset, f"Expires: {data.get('expiry_date', 'N/A')}")
-            y_offset += 20
+            painter.drawText(QRectF(panel_x + 15, y_offset, panel_width-30, line_height), Qt.AlignLeft | Qt.AlignVCenter, f"Expires: {data.get('expiry_date', 'N/A')}")
+            y_offset += line_height
         
         # Last updated
         if data.get('last_updated'):
-            painter.drawText(panel_x + 15, y_offset, f"Updated: {data.get('last_updated', 'N/A').split(' ')[0]}")
+            painter.drawText(QRectF(panel_x + 15, y_offset, panel_width-30, line_height), Qt.AlignLeft | Qt.AlignVCenter, f"Updated: {data.get('last_updated', 'N/A').split(' ')[0]}")
                 
     def hoverEnterEvent(self, event):
         self.prepareGeometryChange()

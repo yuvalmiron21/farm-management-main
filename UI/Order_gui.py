@@ -1,3 +1,6 @@
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QTableWidget, QTableWidgetItem,
     QMessageBox, QHBoxLayout, QInputDialog, QHeaderView, QFrame, QSizePolicy,
@@ -6,6 +9,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer, QDate
 from PyQt5.QtGui import QFont, QColor, QPalette
 from firebase_admin import db
+from db.cache_manager import CacheManager
 
 class OrderGUI(QWidget):
     def __init__(self):
@@ -158,6 +162,7 @@ class OrderGUI(QWidget):
         self.filtered_orders = []
 
         # Load initial data
+        self._cache_manager = CacheManager()
         self.load_orders()
 
     def load_orders(self):
@@ -167,10 +172,8 @@ class OrderGUI(QWidget):
         self.filtered_orders.clear()
         
         try:
-            ref = db.reference('Order')
-            orders_data = ref.get()
-
-            print("Raw orders data from Firebase:", orders_data)  # Debug print
+            orders_data = self._cache_manager.get_data('Order')
+            print("Raw orders data from cache/Firebase:", orders_data)  # Debug print
 
             if not orders_data:
                 print("No orders found in database")  # Debug print
@@ -202,6 +205,7 @@ class OrderGUI(QWidget):
                         # Update the order in Firebase if status was normalized
                         if status != order_data.get('Status', ''):
                             try:
+                                ref = db.reference('Order')
                                 ref.child(key).update({'Status': status})
                                 print(f"Updated order {key} status to {status}")  # Debug print
                             except Exception as e:

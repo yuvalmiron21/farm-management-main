@@ -115,8 +115,8 @@ class GrowingBedItem(QGraphicsObject):
         self._is_hovered = False
         self.width = 180
         self.height = 130
-        self.detailed_panel_width = 220
-        self.detailed_panel_height = 150
+        self.detailed_panel_width = 235
+        self.detailed_panel_height = 145
         
         self.stage_colors = {
             "Spawn Run": ("#78909c", "#546e7a"),
@@ -211,42 +211,48 @@ class GrowingBedItem(QGraphicsObject):
 
     def paint_data_panel(self, painter):
         panel_x = self._get_panel_x_position()
-        panel_width = self.detailed_panel_width
-        panel_height = self.detailed_panel_height
-        
-        path = QPainterPath()
-        path.addRoundedRect(panel_x, 0, panel_width, panel_height, 8, 8)
-        
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(0, 0, 0, 15))
-        painter.drawPath(path.translated(1, 1))
+        panel_width = 235
+        panel_height = 145
 
+        path = QPainterPath()
+        path.addRoundedRect(panel_x, 0, panel_width, panel_height, 12, 12)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(0, 0, 0, 18))
+        painter.drawPath(path.translated(1, 1))
         painter.setBrush(QColor(255, 255, 255, 250))
         painter.setPen(QPen(QColor("#e0e0e0"), 1))
         painter.drawPath(path)
-        
+
         data = self.bed_data
         data_items = [
-            ("🌡️", "Temperature", f"{data.get('Temperature', 0)}°C"),
-            ("💧", "Humidity", f"{data.get('Humidity', 0)}%"),
-            ("☁️", "CO2 Level", f"{data.get('CO2Level', 0)} ppm"),
-            ("🕒", "Last Update", f"{data.get('LastUpdated', 'N/A').split(' ')[0]}")
+            ("🌡️", "Temp.", f"{data.get('Temperature', 0)}°C"),
+            ("💧", "Hum.", f"{data.get('Humidity', 0)}%"),
+            ("☁️", "CO₂", f"{data.get('CO2Level', 0)} ppm"),
+            ("🕒", "Upd.", f"{data.get('LastUpdated', 'N/A').split(' ')[0]}")
         ]
-        
-        y_offset = 20
-        for icon, label, value in data_items:
-            painter.setFont(QFont("Arial", 12))
+
+        icon_rect = QRectF(panel_x + 14, 22, 24, 24)
+        label_rect = QRectF(panel_x + 44, 22, 90, 24)
+        value_rect = QRectF(panel_x + 140, 22, panel_width - 154, 24)
+        row_height = 32
+
+        for i, (icon, label, value) in enumerate(data_items):
+            y = 22 + i * row_height
+
+            # אייקון
+            painter.setFont(QFont("Arial", 15))
             painter.setPen(Qt.black)
-            painter.drawText(panel_x + 15, y_offset, icon)
-            
-            painter.setFont(self.label_font)
-            painter.setPen(QColor("#555"))
-            painter.drawText(panel_x + 40, y_offset, label)
-            
-            painter.setFont(self.value_font)
+            painter.drawText(QRectF(icon_rect.x(), y, icon_rect.width(), icon_rect.height()), Qt.AlignCenter, icon)
+
+            # תיאור
+            painter.setFont(QFont("Arial", 11))
+            painter.setPen(QColor("#444"))
+            painter.drawText(QRectF(label_rect.x(), y, label_rect.width(), label_rect.height()), Qt.AlignVCenter | Qt.AlignLeft, label)
+
+            # ערך
+            painter.setFont(QFont("Arial", 13, QFont.Bold))
             painter.setPen(QColor("#111"))
-            painter.drawText(QRectF(panel_x + 100, y_offset - 10, panel_width - 115, 20), Qt.AlignRight | Qt.AlignVCenter, value)
-            y_offset += 30
+            painter.drawText(QRectF(value_rect.x(), y, value_rect.width(), value_rect.height()), Qt.AlignVCenter | Qt.AlignRight, value)
 
     def hoverEnterEvent(self, event):
         self.prepareGeometryChange()
